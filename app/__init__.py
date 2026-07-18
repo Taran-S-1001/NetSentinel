@@ -15,7 +15,7 @@ from flask import Flask, render_template
 from dotenv import load_dotenv
 
 from app.config import Config, TestingConfig
-from app.extensions import db
+from app.extensions import db, socketio
 from app.routes.api import api_bp
 from app.routes.main import main_bp
 from app.routes.ui import ui_bp
@@ -66,6 +66,7 @@ def resolve_config(config_name: Optional[str]) -> type[Config]:
 def initialize_extensions(app: Flask) -> None:
     """Initialize third-party extensions for the Flask app."""
     db.init_app(app)
+    socketio.init_app(app)
 
     with app.app_context():
         db.create_all()

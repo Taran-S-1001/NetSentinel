@@ -44,14 +44,48 @@
         </div>
 
         <div class="d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">
+          <button class="btn btn-primary" type="submit" id="submitBtn">
             <i class="bi bi-play-fill me-2" aria-hidden="true"></i>Start Scan
           </button>
-          <button class="btn btn-outline-secondary" type="reset">
+          <button class="btn btn-outline-secondary" type="reset" id="resetBtn">
             <i class="bi bi-arrow-counterclockwise me-2" aria-hidden="true"></i>Reset
           </button>
         </div>
       </form>
+
+      <!-- Real-time scan progress container (hidden by default) -->
+      <div id="progressContainer" class="mt-5" style="display: none;">
+        <h5>Scan Progress</h5>
+        <div class="mb-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="small text-muted">Scanning ports...</span>
+            <span class="badge bg-primary" id="progressBadge">0%</span>
+          </div>
+          <div class="progress">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" id="progressBar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+          </div>
+          <div class="small text-muted mt-2">
+            <span id="progressText">Waiting to start...</span>
+          </div>
+        </div>
+
+        <h6 class="mt-4">Port Results</h6>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped" id="resultsTable">
+            <thead>
+              <tr>
+                <th>Port</th>
+                <th>Status</th>
+                <th>Service</th>
+                <th>Response Time (ms)</th>
+              </tr>
+            </thead>
+            <tbody id="resultsTableBody">
+              <!-- Results will be added here dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
   <div class="col-xl-4">
@@ -70,4 +104,176 @@
     </div>
   </div>
 </div>
+
+<!-- Socket.IO client library -->
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+<script>
+  (function() {
+    'use strict';
+
+    // Connect to the WebSocket server
+    const socket = io();
+
+    // Get DOM elements
+    const scanForm = document.getElementById('scanForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressBadge = document.getElementById('progressBadge');
+    const progressText = document.getElementById('progressText');
+    const resultsTableBody = document.getElementById('resultsTableBody');
+
+    // Track scan state
+    let isScanning = false;
+    let scanAbortController = null;
+
+    // Handle form submission
+    scanForm.addEventListener('submit', async function(e) {
+      e.preventDefault();
+
+      if (isScanning) {
+        console.warn('Scan already in progress');
+        return;
+      }
+
+      // Get form values
+      const host = document.getElementById('host').value.trim();
+      const startPort = parseInt(document.getElementById('start_port').value, 10);
+      const endPort = parseInt(document.getElementById('end_port').value, 10);
+      const threads = parseInt(document.getElementById('threads').value, 10);
+
+      // Validate inputs
+      if (!host) {
+        alert('Please enter a host');
+        return;
+      }
+      if (isNaN(startPort) || isNaN(endPort)) {
+        alert('Please enter valid port numbers');
+        return;
+      }
+      if (startPort > endPort) {
+        alert('Start port cannot be greater than end port');
+        return;
+      }
+
+      // Reset progress display
+      resetProgress();
+      isScanning = true;
+      submitBtn.disabled = true;
+      scanAbortController = new AbortController();
+
+      try {
+        const totalPorts = endPort - startPort + 1;
+        progressContainer.style.display = 'block';
+        progressText.textContent = `Scanning ${totalPorts} ports on ${host}...`;
+
+        // Send scan request
+        const response = await fetch('/api/scan', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            host: host,
+            start_port: startPort,
+            end_port: endPort,
+            threads: threads,
+          }),
+          signal: scanAbortController.signal,
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Scan failed');
+        }
+
+        const result = await response.json();
+        console.log('Scan completed:', result);
+
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          console.error('Scan error:', error);
+          alert('Scan failed: ' + error.message);
+        }
+      } finally {
+        isScanning = false;
+        submitBtn.disabled = false;
+      }
+    });
+
+    // Listen for scan progress events from the server
+    socket.on('scan_progress', function(data) {
+      console.log('Progress update:', data);
+
+      // Update progress bar and badge
+      const percent = data.percent_complete;
+      progressBar.style.width = percent + '%';
+      progressBar.setAttribute('aria-valuenow', percent);
+      progressBadge.textContent = percent + '%';
+      progressText.textContent = `Completed: ${data.completed}/${data.total} ports`;
+
+      // Add row to results table
+      const row = resultsTableBody.insertRow();
+      row.innerHTML = `
+        <td><strong>${data.port}</strong></td>
+        <td>
+          <span class="badge ${getStatusBadgeClass(data.status)}">
+            ${data.status}
+          </span>
+        </td>
+        <td>${data.service_name || 'Unknown'}</td>
+        <td>${data.response_time !== null ? (data.response_time * 1000).toFixed(2) : '-'}</td>
+      `;
+    });
+
+    // Listen for scan completion event
+    socket.on('scan_complete', function(data) {
+      console.log('Scan complete:', data);
+
+      // Update progress bar to 100%
+      progressBar.style.width = '100%';
+      progressBar.setAttribute('aria-valuenow', 100);
+      progressBadge.textContent = '100%';
+      progressText.textContent = `Scan complete! Open ports: ${data.summary.open_ports}/${data.summary.total_ports}`;
+
+      // Re-enable form
+      submitBtn.disabled = false;
+      isScanning = false;
+
+      // Optionally: redirect to scan details after a delay
+      setTimeout(() => {
+        if (data.scan_id) {
+          // Could redirect to scan_detail page: window.location.href = `/scan/${data.scan_id}`;
+        }
+      }, 2000);
+    });
+
+    // Helper function to get Bootstrap badge class based on port status
+    function getStatusBadgeClass(status) {
+      switch (status) {
+        case 'OPEN':
+          return 'bg-danger';
+        case 'CLOSED':
+          return 'bg-success';
+        case 'FILTERED':
+          return 'bg-warning';
+        case 'ERROR':
+          return 'bg-secondary';
+        default:
+          return 'bg-light text-dark';
+      }
+    }
+
+    // Reset progress display
+    function resetProgress() {
+      progressBar.style.width = '0%';
+      progressBar.setAttribute('aria-valuenow', 0);
+      progressBadge.textContent = '0%';
+      progressText.textContent = 'Waiting to start...';
+      resultsTableBody.innerHTML = '';
+    }
+
+  })();
+</script>
 {% endblock %}

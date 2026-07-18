@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from app.analytics.dashboard import DashboardService as AnalyticsDashboardService
 from app.models import PortResult, ScanSession
@@ -572,8 +572,22 @@ class ScanService:
         self._logger = logger or logging.getLogger("netsentinel.scan_service")
         self._advisor = advisor or AISecurityAdvisor()
 
-    def start_scan(self, *, target_host: str, ports: list[int], scan_type: str, protocol: str) -> HostScanResult:
-        """Validate input, create a session, execute the scan, and return results."""
+    def start_scan(
+        self,
+        *,
+        target_host: str,
+        ports: list[int],
+        scan_type: str,
+        protocol: str,
+        progress_callback: Optional[Callable[[Any, int, int], None]] = None,
+    ) -> HostScanResult:
+        """Validate input, create a session, execute the scan, and return results.
+
+        If ``progress_callback`` is provided, it will be called for each completed
+        port scan with arguments: (scan_result, completed_count, total_count).
+        This allows decoupled progress reporting without coupling the service
+        to any transport layer (e.g., WebSockets).
+        """
         self._validate_scan_request(target_host=target_host, ports=ports, scan_type=scan_type, protocol=protocol)
         session = self._session_service.create_session(
             target_host=target_host,
@@ -582,7 +596,13 @@ class ScanService:
         )
         self._logger.info("Starting %s scan for %s", scan_type, target_host)
 
-        results = self.scan_host(session.id, target_host=target_host, ports=ports, protocol=protocol)
+        results = self.scan_host(
+            session.id,
+            target_host=target_host,
+            ports=ports,
+            protocol=protocol,
+            progress_callback=progress_callback,
+        )
         statistics = self.calculate_statistics(results)
         finished_session = self.finish_scan(session.id, statistics=statistics)
         open_ports = [result.port for result in results if result.status == "OPEN"]
@@ -615,10 +635,22 @@ class ScanService:
         )
         return host_result
 
-    def scan_host(self, session_id: int, *, target_host: str, ports: list[int], protocol: str) -> list[PortResult]:
-        """Run the scanner against the provided ports and persist the results."""
+    def scan_host(
+        self,
+        session_id: int,
+        *,
+        target_host: str,
+        ports: list[int],
+        protocol: str,
+        progress_callback: Optional[Callable[[Any, int, int], None]] = None,
+    ) -> list[PortResult]:
+        """Run the scanner against the provided ports and persist the results.
+
+        If ``progress_callback`` is provided, it will be called for each completed
+        port scan with arguments: (scan_result, completed_count, total_count).
+        """
         self._logger.info("Scanning ports %s on %s", ports, target_host)
-        raw_results = self._scanner.scan_ports_threaded(target_host, ports)
+        raw_results = self._scanner.scan_ports_threaded(target_host, ports, progress_callback=progress_callback)
         self.save_results(session_id=session_id, results=raw_results, protocol=protocol)
         return self._session_service._result_repo.list_for_session(session_id)
 
