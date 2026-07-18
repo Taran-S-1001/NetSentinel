@@ -60,6 +60,10 @@
         <dd class="col-sm-7">{{ scan_result.first_open_port|default('None', true) }}</dd>
         <dt class="col-sm-5 text-muted">Last Open Port</dt>
         <dd class="col-sm-7">{{ scan_result.last_open_port|default('None', true) }}</dd>
+        {% if scan_result.os_guess %}
+        <dt class="col-sm-5 text-muted">OS Fingerprint</dt>
+        <dd class="col-sm-7"><span class="badge bg-info">{{ scan_result.os_guess }}</span></dd>
+        {% endif %}
       </dl>
     </div>
   </div>
@@ -159,6 +163,43 @@
     </div>
   </div>
 </div>
+
+{% if scan_result.traceroute_hops %}
+<div class="card p-4 mb-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="h5 mb-0">
+      <i class="bi bi-diagram-2 me-2" aria-hidden="true"></i>Network Path (Traceroute)
+    </h2>
+    <span class="small text-muted">{{ scan_result.traceroute_hops|length }} hops</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for hop in scan_result.traceroute_hops %}
+      <div class="list-group-item px-0 py-2">
+        <div class="d-flex justify-content-between align-items-start gap-3">
+          <div class="flex-grow-1">
+            <div class="fw-semibold">Hop {{ hop.hop_number }}</div>
+            <div class="text-muted small">
+              {% if hop.ip_address %}
+                <span class="badge bg-light text-dark">{{ hop.ip_address }}</span>
+                {% if hop.hostname %}
+                  ({{ hop.hostname }})
+                {% endif %}
+              {% else %}
+                <span class="text-muted">* (no response)</span>
+              {% endif %}
+            </div>
+          </div>
+          {% if hop.round_trip_time_ms %}
+            <div class="text-end">
+              <div class="small text-muted">{{ hop.round_trip_time_ms|round(2) }} ms</div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 <div class="card p-4 mb-4" id="comparison">
   <h2 class="h5 mb-3">Comparison</h2>

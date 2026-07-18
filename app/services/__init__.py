@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -23,7 +24,9 @@ from app.schemas import (
     SecurityReport,
     ServiceChange,
 )
+from app.scanner.ping import ping_with_ttl, guess_os_from_ttl
 from app.scanner.tcp import TCPScanner
+from app.scanner.traceroute import traceroute
 from app.services.ai_security_advisor import AISecurityAdvisor
 from app.services.network_monitor import NetworkMonitorService
 
@@ -587,6 +590,8 @@ class ScanService:
         port scan with arguments: (scan_result, completed_count, total_count).
         This allows decoupled progress reporting without coupling the service
         to any transport layer (e.g., WebSockets).
+
+        Also runs OS fingerprinting and traceroute concurrently with the port scan.
         """
         self._validate_scan_request(target_host=target_host, ports=ports, scan_type=scan_type, protocol=protocol)
         session = self._session_service.create_session(
@@ -596,6 +601,46 @@ class ScanService:
         )
         self._logger.info("Starting %s scan for %s", scan_type, target_host)
 
+        # Run fingerprinting and traceroute concurrently with port scan
+        os_fingerprint_result: list[Optional[str]] = [None]
+        traceroute_result: list[list[dict[str, object]]] = [[]]
+
+        def run_fingerprinting() -> None:
+            """Run OS fingerprinting in a separate thread."""
+            try:
+                _, ttl = ping_with_ttl(target_host, timeout=4.0)
+                if ttl is not None:
+                    os_fp = guess_os_from_ttl(ttl)
+                    os_fingerprint_result[0] = os_fp.guessed_os
+                    self._logger.info("OS fingerprint for %s: %s (confidence: %s)", target_host, os_fp.guessed_os, os_fp.confidence)
+            except Exception as exc:  # pragma: no cover
+                self._logger.debug("OS fingerprinting failed for %s: %s", target_host, exc)
+
+        def run_traceroute() -> None:
+            """Run traceroute in a separate thread."""
+            try:
+                hops = traceroute(target_host, max_hops=30, timeout=2.0)
+                traceroute_result[0] = [
+                    {
+                        "hop_number": hop.hop_number,
+                        "ip_address": hop.ip_address,
+                        "round_trip_time_ms": hop.round_trip_time_ms,
+                        "hostname": hop.hostname,
+                    }
+                    for hop in hops
+                ]
+                if traceroute_result[0]:
+                    self._logger.info("Traceroute to %s completed: %d hops", target_host, len(traceroute_result[0]))
+            except Exception as exc:  # pragma: no cover
+                self._logger.debug("Traceroute failed for %s: %s", target_host, exc)
+
+        # Start threads for fingerprinting and traceroute
+        fingerprint_thread = threading.Thread(target=run_fingerprinting, daemon=True)
+        traceroute_thread = threading.Thread(target=run_traceroute, daemon=True)
+        fingerprint_thread.start()
+        traceroute_thread.start()
+
+        # Run port scan in main thread
         results = self.scan_host(
             session.id,
             target_host=target_host,
@@ -603,6 +648,11 @@ class ScanService:
             protocol=protocol,
             progress_callback=progress_callback,
         )
+
+        # Wait for fingerprinting and traceroute to complete
+        fingerprint_thread.join(timeout=10.0)
+        traceroute_thread.join(timeout=10.0)
+
         statistics = self.calculate_statistics(results)
         finished_session = self.finish_scan(session.id, statistics=statistics)
         open_ports = [result.port for result in results if result.status == "OPEN"]
@@ -624,6 +674,8 @@ class ScanService:
             status=finished_session.status,
             created_at=finished_session.created_at.isoformat() if finished_session.created_at else None,
             open_ports_list=open_ports,
+            os_guess=os_fingerprint_result[0],
+            traceroute_hops=traceroute_result[0] if traceroute_result[0] else None,
         )
         assessment = self._advisor.analyze(host_result, results)
         self._logger.info(
