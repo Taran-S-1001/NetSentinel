@@ -20,7 +20,7 @@ from flask import (
 
 from app.models import PortResult
 from app.reporting.report_service import ReportingService
-from app.repositories import PortResultRepository
+from app.repositories import PortResultRepository, ScheduledScanRepository
 from app.schemas import HostScanResult
 from app.services import (
     AISecurityAdvisor,
@@ -138,6 +138,60 @@ def history() -> str:
         title="Scan History",
         query=query,
         status=status,
+    )
+
+
+@ui_bp.route("/schedules", methods=["GET", "POST"])
+def schedules() -> str:
+    """Render the scheduled scans management page."""
+    repository = ScheduledScanRepository()
+    errors: list[str] = []
+    if request.method == "POST":
+        host = request.form.get("host", "").strip()
+        start_port = request.form.get("start_port", "")
+        end_port = request.form.get("end_port", "")
+        interval_seconds = request.form.get("interval_seconds", "")
+        alert_email = request.form.get("alert_email", "").strip() or None
+        alert_webhook = request.form.get("alert_webhook", "").strip() or None
+        enabled = request.form.get("enabled") == "on"
+
+        if not host:
+            errors.append("Host/IP is required.")
+        if not start_port.isdigit() or not end_port.isdigit():
+            errors.append("Start port and end port must be numeric.")
+        else:
+            start = int(start_port)
+            end = int(end_port)
+            if start < 1 or end < 1 or start > end:
+                errors.append("Invalid port range.")
+        if not interval_seconds.isdigit() or int(interval_seconds) < 60:
+            errors.append("Interval must be at least 60 seconds.")
+
+        if not errors:
+            schedule = repository.create(
+                target_host=host,
+                scan_type="tcp",
+                protocol="tcp",
+                start_port=int(start_port),
+                end_port=int(end_port),
+                interval_seconds=int(interval_seconds),
+                enabled=enabled,
+                alert_email=alert_email,
+                alert_webhook=alert_webhook,
+            )
+            if current_app.config.get("SCHEDULER_ENABLED") and hasattr(current_app, "scheduled_scan_manager"):
+                current_app.scheduled_scan_manager.register_schedule(schedule)
+            flash("Scheduled scan created successfully.", "success")
+            return redirect(url_for("ui.schedules"))
+
+        for message in errors:
+            flash(message, "danger")
+
+    schedules = repository.list_all()
+    return render_template(
+        "schedules.html",
+        title="Scheduled Scans",
+        schedules=schedules,
     )
 
 

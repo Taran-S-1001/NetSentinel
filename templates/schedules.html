@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}Scheduled Scans{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-lg-8">
+    <div class="card mb-4">
+      <div class="card-header">
+        <div class="d-flex align-items-center justify-content-between">
+          <div>
+            <h2 class="h5 mb-0">Scheduled Scans</h2>
+            <p class="small text-muted mb-0">Create recurring port scans and alert on changes.</p>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Host</th>
+              <th>Range</th>
+              <th>Interval</th>
+              <th>Alerts</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for schedule in schedules %}
+            <tr>
+              <td>{{ schedule.target_host }}</td>
+              <td>{{ schedule.start_port }} - {{ schedule.end_port }}</td>
+              <td>{{ schedule.interval_seconds }}s</td>
+              <td>
+                {% if schedule.alert_email %}Email{% endif %}
+                {% if schedule.alert_webhook %}{{ ", " if schedule.alert_email }}Webhook{% endif %}
+                {% if not schedule.alert_email and not schedule.alert_webhook %}None{% endif %}
+              </td>
+              <td>
+                <span class="badge bg-{{ 'success' if schedule.enabled else 'secondary' }}">
+                  {{ 'Enabled' if schedule.enabled else 'Disabled' }}
+                </span>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="5" class="text-center text-muted">No scheduled scans yet.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card mb-4">
+      <div class="card-header">
+        <h3 class="h6 mb-0">New Schedule</h3>
+      </div>
+      <div class="card-body">
+        <form method="post">
+          <div class="mb-3">
+            <label for="host" class="form-label">Host/IP</label>
+            <input type="text" class="form-control" id="host" name="host" required>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-sm-6">
+              <label for="start_port" class="form-label">Start Port</label>
+              <input type="number" class="form-control" id="start_port" name="start_port" min="1" max="65535" value="1" required>
+            </div>
+            <div class="col-sm-6">
+              <label for="end_port" class="form-label">End Port</label>
+              <input type="number" class="form-control" id="end_port" name="end_port" min="1" max="65535" value="100" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="interval_seconds" class="form-label">Interval (seconds)</label>
+            <input type="number" class="form-control" id="interval_seconds" name="interval_seconds" min="60" value="3600" required>
+          </div>
+          <div class="mb-3">
+            <label for="alert_email" class="form-label">Alert Email</label>
+            <input type="email" class="form-control" id="alert_email" name="alert_email" placeholder="user@example.com">
+          </div>
+          <div class="mb-3">
+            <label for="alert_webhook" class="form-label">Alert Webhook URL</label>
+            <input type="url" class="form-control" id="alert_webhook" name="alert_webhook" placeholder="https://example.com/webhook">
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="enabled" name="enabled" checked>
+            <label class="form-check-label" for="enabled">Enable schedule</label>
+          </div>
+          <button type="submit" class="btn btn-primary">Create Schedule</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

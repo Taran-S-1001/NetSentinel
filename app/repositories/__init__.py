@@ -69,6 +69,69 @@ class ScanSessionRepository:
         db.session.commit()
 
 
+class ScheduledScanRepository:
+    """Repository for recurring scan schedule persistence."""
+
+    def create(
+        self,
+        *,
+        target_host: str,
+        scan_type: str,
+        protocol: str,
+        start_port: int,
+        end_port: int,
+        interval_seconds: int,
+        enabled: bool = True,
+        alert_email: Optional[str] = None,
+        alert_webhook: Optional[str] = None,
+    ) -> "ScheduledScan":
+        from app.models import ScheduledScan
+
+        schedule = ScheduledScan(
+            target_host=target_host,
+            scan_type=scan_type,
+            protocol=protocol,
+            start_port=start_port,
+            end_port=end_port,
+            interval_seconds=interval_seconds,
+            enabled=enabled,
+            alert_email=alert_email,
+            alert_webhook=alert_webhook,
+        )
+        db.session.add(schedule)
+        db.session.commit()
+        return schedule
+
+    def get_by_id(self, schedule_id: int) -> Optional["ScheduledScan"]:
+        from app.models import ScheduledScan
+
+        return db.session.get(ScheduledScan, schedule_id)
+
+    def list_all(self) -> list["ScheduledScan"]:
+        from app.models import ScheduledScan
+
+        return db.session.query(ScheduledScan).order_by(ScheduledScan.created_at.desc()).all()
+
+    def list_active(self) -> list["ScheduledScan"]:
+        from app.models import ScheduledScan
+
+        return (
+            db.session.query(ScheduledScan)
+            .filter(ScheduledScan.enabled.is_(True))
+            .order_by(ScheduledScan.created_at.desc())
+            .all()
+        )
+
+    def update(self, schedule: "ScheduledScan") -> "ScheduledScan":
+        db.session.add(schedule)
+        db.session.commit()
+        return schedule
+
+    def delete(self, schedule: "ScheduledScan") -> None:
+        db.session.delete(schedule)
+        db.session.commit()
+
+
 class PortResultRepository:
     """Repository for persisting individual port scan results."""
 
