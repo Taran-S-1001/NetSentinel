@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from typing import Any
-
+from flask_login import login_required, current_user
 from flask import (
     Blueprint,
     Response,
@@ -32,7 +32,7 @@ from app.services import (
 
 ui_bp = Blueprint("ui", __name__)
 
-
+@login_required
 @ui_bp.route("/")
 def dashboard() -> str:
     """Render the main dashboard page."""

@@ -7,6 +7,14 @@ can initialize them in a consistent and modular way.
 from __future__ import annotations
 
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager
+from flask_bcrypt import Bcrypt
 
-# SQLAlchemy instance used throughout the application.
+# Database
 db = SQLAlchemy()
+
+# Authentication
+login_manager = LoginManager()
+
+# Password hashing
+bcrypt = Bcrypt()

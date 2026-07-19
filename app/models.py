@@ -3,9 +3,51 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-
+from flask_login import UserMixin
 from app.extensions import db
 
+class User(UserMixin, db.Model):
+    """Represents an authenticated user."""
+
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    username = db.Column(
+        db.String(80),
+        unique=True,
+        nullable=False,
+    )
+
+    email = db.Column(
+        db.String(120),
+        unique=True,
+        nullable=False,
+    )
+
+    password_hash = db.Column(
+        db.String(255),
+        nullable=False,
+    )
+
+    role = db.Column(
+        db.String(20),
+        default="viewer",
+        nullable=False,
+    )
+
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    scan_sessions = db.relationship(
+        "ScanSession",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
 
 class ScanSession(db.Model):  # type: ignore[name-defined]
     """Represents a single scan session executed by the scanner."""
@@ -13,6 +55,11 @@ class ScanSession(db.Model):  # type: ignore[name-defined]
     __tablename__ = "scan_sessions"
 
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+    db.Integer,
+    db.ForeignKey("users.id", ondelete="CASCADE"),
+    nullable=False,
+    )
     target_host = db.Column(db.String(255), nullable=False)
     scan_type = db.Column(db.String(50), nullable=False)
     protocol = db.Column(db.String(20), nullable=False)
@@ -30,6 +77,11 @@ class ScanSession(db.Model):  # type: ignore[name-defined]
         default=lambda: datetime.now(timezone.utc),
     )
 
+    user = db.relationship(
+    "User",
+    back_populates="scan_sessions",
+    )   
+    
     port_results = db.relationship(
         "PortResult",
         back_populates="scan_session",
@@ -91,6 +143,6 @@ class VulnerablePort(db.Model):  # type: ignore[name-defined]
     vulnerability_id = db.Column(
         db.Integer, db.ForeignKey("vulnerabilities.id", ondelete="CASCADE"), nullable=False
     )
-
+    
     port_result = db.relationship("PortResult", backref="vulnerable_links")
     vulnerability = db.relationship("Vulnerability", back_populates="vulnerable_ports")

@@ -15,12 +15,20 @@ from flask import Flask, render_template
 from dotenv import load_dotenv
 
 from app.config import Config, TestingConfig
-from app.extensions import db
+from app.extensions import db, login_manager, bcrypt
 from sqlalchemy.exc import OperationalError
 from app.routes.api import api_bp
 from app.routes.main import main_bp
 from app.routes.ui import ui_bp
+from app.routes.auth import auth_bp
 
+from app.models import User
+from app.extensions import login_manager
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 load_dotenv()
 
@@ -66,16 +74,20 @@ def resolve_config(config_name: Optional[str]) -> type[Config]:
 
 def initialize_extensions(app: Flask) -> None:
     """Initialize third-party extensions for the Flask app."""
+
     db.init_app(app)
 
+    login_manager.init_app(app)
+    bcrypt.init_app(app)
+
+    login_manager.login_view = "auth.login"
+    login_manager.login_message = "Please log in to continue."
+    login_manager.login_message_category = "info"
+
     with app.app_context():
-        try:
-            db.create_all()
-        except OperationalError as exc:
-            # Handle race/duplicate table situations during reloads/edits
-            app.logger.warning("Database initialization warning: %s", exc)
-        except Exception as exc:  # pragma: no cover - defensive guard
-            app.logger.exception("Unexpected error creating database tables: %s", exc)
+        db.create_all()
+
+
 
 
 def register_blueprints(app: Flask) -> None:
@@ -83,6 +95,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(main_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(ui_bp)
+    app.register_blueprint(auth_bp)
 
 
 def configure_logging(app: Flask) -> None:

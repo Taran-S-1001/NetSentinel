@@ -7,7 +7,7 @@ from typing import Optional
 
 from app.extensions import db
 from app.models import PortResult, ScanSession
-
+from flask_login import current_user
 
 class ScanRepository:
     """Repository responsible for legacy scan-related database operations."""
@@ -22,20 +22,31 @@ class ScanSessionRepository:
 
     def create(self, *, target_host: str, scan_type: str, protocol: str) -> ScanSession:
         """Create and persist a new scan session."""
+
         session = ScanSession(
+            user_id=current_user.id,
             target_host=target_host,
             scan_type=scan_type,
             protocol=protocol,
             status="running",
             start_time=datetime.now(timezone.utc),
         )
+
         db.session.add(session)
         db.session.commit()
+
         return session
 
     def get_by_id(self, session_id: int) -> Optional[ScanSession]:
-        """Retrieve a scan session by its identifier."""
-        return db.session.get(ScanSession, session_id)
+        """Retrieve a scan session belonging to the current user."""
+        return (
+            db.session.query(ScanSession)
+            .filter(
+            ScanSession.id == session_id,
+            ScanSession.user_id == current_user.id,
+        )
+        .first()
+    )
 
     def update(self, session: ScanSession) -> ScanSession:
         """Persist updates to an existing scan session."""
@@ -44,8 +55,13 @@ class ScanSessionRepository:
         return session
 
     def list_all(self) -> list[ScanSession]:
-        """Return all persisted scan sessions."""
-        return db.session.query(ScanSession).order_by(ScanSession.created_at.desc()).all()
+        """Return scan sessions for the current user only."""
+        return (
+        db.session.query(ScanSession)
+        .filter(ScanSession.user_id == current_user.id)
+        .order_by(ScanSession.created_at.desc())
+        .all()
+        )
 
     def delete(self, session: ScanSession) -> None:
         """Delete a scan session and its associated port results."""
