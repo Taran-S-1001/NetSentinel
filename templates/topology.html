@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+{% block title %}Topology{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1 class="h3">Network Topology</h1>
+    <p class="text-muted mb-0">
+      Force-directed view of traceroute paths collected across historical scans.
+    </p>
+  </div>
+  <a class="btn btn-outline-primary" href="{{ url_for('ui.scan_page') }}">
+    <i class="bi bi-radar me-2" aria-hidden="true"></i>Run a scan
+  </a>
+</div>
+
+{% if topology.empty %}
+<div class="card p-5 text-center">
+  <div class="mb-3">
+    <i class="bi bi-diagram-3 display-4 text-muted" aria-hidden="true"></i>
+  </div>
+  <h2 class="h5">No topology data yet</h2>
+  <p class="text-muted mx-auto mb-4" style="max-width: 36rem;">
+    Topology builds up as scans with traceroute data run successfully.
+    Traceroute can fail silently when the host lacks raw-socket permissions
+    (common on Windows without elevation), so run a few scans against reachable
+    targets and refresh this page once hops are recorded.
+  </p>
+  <a class="btn btn-primary" href="{{ url_for('ui.scan_page') }}">
+    <i class="bi bi-plus-lg me-2" aria-hidden="true"></i>Start a scan
+  </a>
+</div>
+{% else %}
+<div class="card p-3">
+  <div class="d-flex flex-wrap gap-3 mb-3 small text-muted" aria-label="Node legend">
+    <span><span class="topology-legend-dot" style="background:#0d6efd;"></span> Scanner (source)</span>
+    <span><span class="topology-legend-dot" style="background:#6c757d;"></span> Intermediate hop</span>
+    <span><span class="topology-legend-dot" style="background:#198754;"></span> Target host</span>
+  </div>
+  <div
+    id="topology-network"
+    role="img"
+    aria-label="Network topology graph"
+    style="height: min(70vh, 640px); border: 1px solid var(--bs-border-color); border-radius: 0.375rem;"
+  ></div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if not topology.empty %}
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script>
+  (function () {
+    const topology = {{ topology|tojson }};
+    const colorByType = {
+      source: { background: "#0d6efd", border: "#0a58ca", highlight: { background: "#3d8bfd", border: "#0a58ca" } },
+      hop: { background: "#6c757d", border: "#495057", highlight: { background: "#adb5bd", border: "#495057" } },
+      target: { background: "#198754", border: "#146c43", highlight: { background: "#20c997", border: "#146c43" } },
+    };
+
+    const nodes = new vis.DataSet(
+      (topology.nodes || []).map(function (node) {
+        return {
+          id: node.id,
+          label: node.label,
+          title: node.os_guess
+            ? node.label + "\nOS: " + node.os_guess
+            : node.label,
+          color: colorByType[node.type] || colorByType.hop,
+          shape: node.type === "source" ? "diamond" : node.type === "target" ? "dot" : "ellipse",
+          font: { color: "#212529" },
+        };
+      })
+    );
+
+    const edges = new vis.DataSet(
+      (topology.edges || []).map(function (edge, index) {
+        const latency =
+          edge.avg_latency_ms === null || edge.avg_latency_ms === undefined
+            ? ""
+            : String(edge.avg_latency_ms) + " ms";
+        return {
+          id: "e" + index,
+          from: edge.from,
+          to: edge.to,
+          label: latency,
+          arrows: "to",
+          font: { align: "middle", size: 11, color: "#6c757d" },
+          color: { color: "#adb5bd", highlight: "#0d6efd" },
+        };
+      })
+    );
+
+    const container = document.getElementById("topology-network");
+    const network = new vis.Network(
+      container,
+      { nodes: nodes, edges: edges },
+      {
+        physics: {
+          enabled: true,
+          solver: "forceAtlas2Based",
+          forceAtlas2Based: {
+            gravitationalConstant: -40,
+            centralGravity: 0.01,
+            springLength: 120,
+            springConstant: 0.08,
+          },
+          stabilization: { iterations: 120 },
+        },
+        interaction: { hover: true, tooltipDelay: 120 },
+        nodes: { borderWidth: 2, shadow: false },
+        edges: { smooth: { type: "continuous" } },
+      }
+    );
+
+    network.once("stabilizationIterationsDone", function () {
+      network.setOptions({ physics: false });
+    });
+  })();
+</script>
+<style>
+  .topology-legend-dot {
+    display: inline-block;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 50%;
+    margin-right: 0.35rem;
+    vertical-align: -0.1rem;
+  }
+</style>
+{% endif %}
+{% endblock %}

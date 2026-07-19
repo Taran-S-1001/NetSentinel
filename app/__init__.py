@@ -69,6 +69,14 @@ def initialize_extensions(app: Flask) -> None:
     socketio.init_app(app)
 
     with app.app_context():
+        # Import models so SQLAlchemy metadata includes all tables (including
+        # traceroute_hops / ScanSession.os_guess from Phase 3).
+        # db.create_all() only creates *missing* tables — it will not ALTER an
+        # existing scan_sessions table to add os_guess. Anyone with an existing
+        # netsentinel.db must delete/recreate it, or run a raw:
+        #   ALTER TABLE scan_sessions ADD COLUMN os_guess VARCHAR(100);
+        import app.models  # noqa: F401
+
         db.create_all()
 
 

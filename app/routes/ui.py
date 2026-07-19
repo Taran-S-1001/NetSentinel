@@ -141,6 +141,18 @@ def history() -> str:
     )
 
 
+@ui_bp.route("/topology")
+def topology() -> str:
+    """Render the historical network topology graph."""
+    dashboard_service = DashboardService()
+    topology_data = dashboard_service.get_network_topology()
+    return render_template(
+        "topology.html",
+        topology=topology_data,
+        title="Topology",
+    )
+
+
 @ui_bp.route("/scan/<int:scan_id>", methods=["GET"])
 def scan_details(scan_id: int) -> str:
     """Render the scan detail page for an individual scan."""

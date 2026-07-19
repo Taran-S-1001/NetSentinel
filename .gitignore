@@ -3,32 +3,44 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.egg
+*.egg-info/
+dist/
+build/
 
 # Virtual Environment
 venv/
+.venv/
+env/
+
+# Environment / secrets
 .env
+.env.*
+
+# Flask runtime data (DB, logs, local config)
+instance/
 
 # Database
 *.db
+*.sqlite
 *.sqlite3
+
+# Logs
+*.log
 
 # IDE
 .vscode/
 .idea/
 
-# Logs
-*.log
-
 # OS
 Thumbs.db
 .DS_Store
 
-# Reports
-exports/*.pdf
-exports/*.csv
+# Reports / generated exports
+exports/*
 
-# Testing
+# Testing / coverage
 .pytest_cache/
-
-# Environment
-.env.*
+htmlcov/
+.coverage
+coverage.xml

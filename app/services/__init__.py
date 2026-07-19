@@ -14,6 +14,7 @@ from app.repositories import (
     PortResultRepository,
     ScanRepository,
     ScanSessionRepository,
+    TracerouteHopRepository,
 )
 from app.schemas import (
     ComparisonReport,
@@ -444,6 +445,7 @@ class DashboardService:
         self._analytics_service = AnalyticsDashboardService(
             session_repo=ScanSessionRepository(),
             result_repo=PortResultRepository(),
+            hop_repo=TracerouteHopRepository(),
         )
 
     def get_home_dashboard_data(self) -> HomePageData:
@@ -499,6 +501,10 @@ class DashboardService:
     def get_infrastructure_overview(self) -> InfrastructureOverview:
         """Return the infrastructure overview widget payload."""
         return self._analytics_service.get_infrastructure_overview()
+
+    def get_network_topology(self) -> dict[str, Any]:
+        """Return aggregated network topology graph data for the UI."""
+        return self._analytics_service.get_network_topology()
 
 
 class ScanSessionService:
@@ -569,11 +575,13 @@ class ScanService:
         scanner: Optional[TCPScanner] = None,
         logger: Optional[logging.Logger] = None,
         advisor: Optional[AISecurityAdvisor] = None,
+        hop_repo: Optional[TracerouteHopRepository] = None,
     ) -> None:
         self._session_service = session_service or ScanSessionService()
         self._scanner = scanner or TCPScanner()
         self._logger = logger or logging.getLogger("netsentinel.scan_service")
         self._advisor = advisor or AISecurityAdvisor()
+        self._hop_repo = hop_repo or TracerouteHopRepository()
 
     def start_scan(
         self,
@@ -653,6 +661,23 @@ class ScanService:
         fingerprint_thread.join(timeout=10.0)
         traceroute_thread.join(timeout=10.0)
 
+        # Persist Phase 2 topology signals so historical topology can be built
+        os_guess = os_fingerprint_result[0]
+        traceroute_hops = traceroute_result[0]
+        if os_guess is not None:
+            scan_session = self._session_service._session_repo.get_by_id(session.id)
+            if scan_session is not None:
+                scan_session.os_guess = os_guess
+                self._session_service._session_repo.update(scan_session)
+                self._logger.info("Persisted OS guess for session %s: %s", session.id, os_guess)
+        if traceroute_hops:
+            self._hop_repo.save_hops(session.id, traceroute_hops)
+            self._logger.info(
+                "Persisted %d traceroute hops for session %s",
+                len(traceroute_hops),
+                session.id,
+            )
+
         statistics = self.calculate_statistics(results)
         finished_session = self.finish_scan(session.id, statistics=statistics)
         open_ports = [result.port for result in results if result.status == "OPEN"]
@@ -674,8 +699,8 @@ class ScanService:
             status=finished_session.status,
             created_at=finished_session.created_at.isoformat() if finished_session.created_at else None,
             open_ports_list=open_ports,
-            os_guess=os_fingerprint_result[0],
-            traceroute_hops=traceroute_result[0] if traceroute_result[0] else None,
+            os_guess=os_guess,
+            traceroute_hops=traceroute_hops if traceroute_hops else None,
         )
         assessment = self._advisor.analyze(host_result, results)
         self._logger.info(

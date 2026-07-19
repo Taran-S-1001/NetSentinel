@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import logging
+from collections import defaultdict
 from typing import Any
 
 from app.analytics.charts import ChartBuilder
 from app.analytics.statistics import StatisticsBuilder
 from app.analytics.trends import TrendBuilder
-from app.models import PortResult, ScanSession
-from app.repositories import PortResultRepository, ScanSessionRepository
+from app.models import PortResult, ScanSession, TracerouteHop
+from app.repositories import (
+    PortResultRepository,
+    ScanSessionRepository,
+    TracerouteHopRepository,
+)
 from app.schemas import InfrastructureOverview
+
+logger = logging.getLogger("netsentinel.analytics.dashboard")
 
 
 class DashboardService:
@@ -20,9 +28,11 @@ class DashboardService:
         *,
         session_repo: ScanSessionRepository | None = None,
         result_repo: PortResultRepository | None = None,
+        hop_repo: TracerouteHopRepository | None = None,
     ) -> None:
         self._session_repo = session_repo or ScanSessionRepository()
         self._result_repo = result_repo or PortResultRepository()
+        self._hop_repo = hop_repo or TracerouteHopRepository()
 
     def get_dashboard_summary(self) -> dict[str, Any]:
         statistics = self._build_statistics()
@@ -107,6 +117,149 @@ class DashboardService:
                 values=[{"label": item["label"], "value": item["value"]} for item in TrendBuilder(sessions=self._load_sessions()).daily_scan_count()],
             ),
         }
+
+    def get_network_topology(self) -> dict[str, Any]:
+        """Aggregate historical traceroute hops into a force-directed graph.
+
+        Returns a payload shaped as::
+
+            {
+                "nodes": [{"id", "label", "type": "source"|"hop"|"target", "os_guess"?}],
+                "edges": [{"from", "to", "avg_latency_ms"}],
+                "empty": bool,
+            }
+
+        Duplicate hop IPs across sessions collapse to a single node; edge
+        weights are the average ``round_trip_time_ms`` across observations.
+        """
+        hops = self._hop_repo.list_all()
+        if not hops:
+            logger.info("No traceroute hops available for topology graph")
+            return {"nodes": [], "edges": [], "empty": True}
+
+        sessions = self._load_sessions()
+        session_by_id = {session.id: session for session in sessions}
+        os_by_host = {
+            session.target_host: session.os_guess
+            for session in sessions
+            if session.target_host and session.os_guess
+        }
+
+        nodes: dict[str, dict[str, Any]] = {
+            "source": {"id": "source", "label": "Scanner", "type": "source"},
+        }
+        edge_latencies: dict[tuple[str, str], list[float]] = defaultdict(list)
+
+        hops_by_session: dict[int, list[TracerouteHop]] = defaultdict(list)
+        for hop in hops:
+            hops_by_session[hop.scan_session_id].append(hop)
+
+        for session_id, session_hops in hops_by_session.items():
+            session = session_by_id.get(session_id)
+            if session is None:
+                continue
+
+            target_id = f"target:{session.target_host}"
+            self._ensure_target_node(nodes, target_id, session, os_by_host)
+
+            ordered = sorted(session_hops, key=lambda item: item.hop_number)
+            path_ids = ["source"]
+            path_rtts: list[float | None] = []
+
+            for hop in ordered:
+                if not hop.ip_address:
+                    continue
+                if hop.ip_address == session.target_host:
+                    node_id = target_id
+                else:
+                    node_id = f"hop:{hop.ip_address}"
+                    self._ensure_hop_node(nodes, node_id, hop.ip_address, os_by_host)
+
+                if path_ids and path_ids[-1] == node_id:
+                    # Prefer the latest RTT observation for a repeated consecutive hop
+                    if path_rtts:
+                        path_rtts[-1] = hop.round_trip_time_ms
+                    continue
+
+                path_ids.append(node_id)
+                path_rtts.append(hop.round_trip_time_ms)
+
+            if path_ids[-1] != target_id:
+                path_ids.append(target_id)
+                path_rtts.append(None)
+
+            for index in range(len(path_ids) - 1):
+                edge_key = (path_ids[index], path_ids[index + 1])
+                rtt = path_rtts[index] if index < len(path_rtts) else None
+                if rtt is not None:
+                    edge_latencies[edge_key].append(float(rtt))
+                else:
+                    # Keep the edge even when latency was not observed
+                    edge_latencies.setdefault(edge_key, [])
+
+        edges = [
+            {
+                "from": source,
+                "to": destination,
+                "avg_latency_ms": (
+                    round(sum(latencies) / len(latencies), 2) if latencies else None
+                ),
+            }
+            for (source, destination), latencies in edge_latencies.items()
+        ]
+
+        logger.info(
+            "Built network topology with %d nodes and %d edges",
+            len(nodes),
+            len(edges),
+        )
+        return {"nodes": list(nodes.values()), "edges": edges, "empty": False}
+
+    @staticmethod
+    def _ensure_target_node(
+        nodes: dict[str, dict[str, Any]],
+        target_id: str,
+        session: ScanSession,
+        os_by_host: dict[str, str],
+    ) -> None:
+        """Create or refresh a target node from a scan session."""
+        os_guess = session.os_guess or os_by_host.get(session.target_host)
+        if target_id not in nodes:
+            node: dict[str, Any] = {
+                "id": target_id,
+                "label": session.target_host,
+                "type": "target",
+            }
+            if os_guess:
+                node["os_guess"] = os_guess
+                node["label"] = f"{session.target_host} ({os_guess})"
+            nodes[target_id] = node
+            return
+
+        if os_guess and not nodes[target_id].get("os_guess"):
+            nodes[target_id]["os_guess"] = os_guess
+            nodes[target_id]["label"] = f"{session.target_host} ({os_guess})"
+
+    @staticmethod
+    def _ensure_hop_node(
+        nodes: dict[str, dict[str, Any]],
+        node_id: str,
+        ip_address: str,
+        os_by_host: dict[str, str],
+    ) -> None:
+        """Create a hop node, merging duplicates by IP address."""
+        if node_id in nodes:
+            return
+        os_guess = os_by_host.get(ip_address)
+        node: dict[str, Any] = {
+            "id": node_id,
+            "label": ip_address,
+            "type": "hop",
+        }
+        if os_guess:
+            node["os_guess"] = os_guess
+            node["label"] = f"{ip_address} ({os_guess})"
+        nodes[node_id] = node
 
     def _build_statistics(self) -> StatisticsBuilder:
         sessions = self._load_sessions()
