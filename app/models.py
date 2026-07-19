@@ -122,7 +122,6 @@ class PortResult(db.Model):  # type: ignore[name-defined]
     scan_session = db.relationship("ScanSession", back_populates="port_results")
 
 
-<<<<<<< HEAD
 class Vulnerability(db.Model):  # type: ignore[name-defined]
     """Represents a vulnerability instance (CVE) discovered or recorded in the system."""
 
@@ -158,7 +157,8 @@ class VulnerablePort(db.Model):  # type: ignore[name-defined]
     
     port_result = db.relationship("PortResult", backref="vulnerable_links")
     vulnerability = db.relationship("Vulnerability", back_populates="vulnerable_ports")
-=======
+
+
 class TracerouteHop(db.Model):  # type: ignore[name-defined]
     """Persisted traceroute hop observed during a scan session.
 
@@ -180,4 +180,3 @@ class TracerouteHop(db.Model):  # type: ignore[name-defined]
     round_trip_time_ms = db.Column(db.Float, nullable=True)
 
     scan_session = db.relationship("ScanSession", back_populates="traceroute_hops")
->>>>>>> origin/feature/realtime-progress-fingerprinting

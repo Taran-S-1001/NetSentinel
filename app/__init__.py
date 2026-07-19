@@ -15,12 +15,8 @@ from flask import Flask, render_template
 from dotenv import load_dotenv
 
 from app.config import Config, TestingConfig
-<<<<<<< HEAD
-from app.extensions import db, login_manager, bcrypt
+from app.extensions import db, login_manager, bcrypt, socketio
 from sqlalchemy.exc import OperationalError
-=======
-from app.extensions import db, socketio
->>>>>>> origin/feature/realtime-progress-fingerprinting
 from app.routes.api import api_bp
 from app.routes.main import main_bp
 from app.routes.ui import ui_bp

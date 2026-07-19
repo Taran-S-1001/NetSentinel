@@ -6,13 +6,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Sequence
 
 from app.extensions import db
-<<<<<<< HEAD
-from app.models import PortResult, ScanSession
-from flask_login import current_user
-=======
 from app.models import PortResult, ScanSession, TracerouteHop
-
->>>>>>> origin/feature/realtime-progress-fingerprinting
+from flask_login import current_user
 
 class ScanRepository:
     """Repository responsible for legacy scan-related database operations."""

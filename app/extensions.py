@@ -14,13 +14,11 @@ from flask_bcrypt import Bcrypt
 # Database
 db = SQLAlchemy()
 
-<<<<<<< HEAD
 # Authentication
 login_manager = LoginManager()
 
 # Password hashing
 bcrypt = Bcrypt()
-=======
+
 # Flask-SocketIO instance for real-time WebSocket communication.
 socketio = SocketIO(cors_allowed_origins="*", async_mode="threading")
->>>>>>> origin/feature/realtime-progress-fingerprinting

@@ -143,7 +143,6 @@ def history() -> str:
     )
 
 
-<<<<<<< HEAD
 @ui_bp.route("/schedules", methods=["GET", "POST"])
 @login_required
 def schedules() -> str:
@@ -196,8 +195,11 @@ def schedules() -> str:
         "schedules.html",
         title="Scheduled Scans",
         schedules=schedules,
-=======
+    )
+
+
 @ui_bp.route("/topology")
+@login_required
 def topology() -> str:
     """Render the historical network topology graph."""
     dashboard_service = DashboardService()
@@ -206,7 +208,6 @@ def topology() -> str:
         "topology.html",
         topology=topology_data,
         title="Topology",
->>>>>>> origin/feature/realtime-progress-fingerprinting
     )
 
 
