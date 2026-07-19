@@ -107,9 +107,9 @@ def _ping_windows(host: str, timeout: float) -> bool:
         # Prepare ICMP echo request (ping)
         my_checksum = 0
         my_checksum = _calculate_checksum(
-            struct.pack("!HHh", socket.ICMP_ECHO, 0, my_checksum) + b"data"
+            struct.pack("!HHh", 8, 0, my_checksum) + b"data"
         )
-        packet = struct.pack("!HHh", socket.ICMP_ECHO, 0, my_checksum) + b"data"
+        packet = struct.pack("!HHh", 8, 0, my_checksum) + b"data"
 
         sock.sendto(packet, (host, 1))
 
@@ -121,7 +121,7 @@ def _ping_windows(host: str, timeout: float) -> bool:
         finally:
             sock.close()
     except Exception as exc:
-        logger.debug("Windows ping failed for %s: %s", host, exc)
+        logger.warning("Windows ping failed for %s: %s", host, exc)
         return False
 
 
@@ -134,9 +134,9 @@ def _ping_unix(host: str, timeout: float) -> bool:
         # Prepare ICMP echo request
         my_checksum = 0
         my_checksum = _calculate_checksum(
-            struct.pack("!HHh", socket.ICMP_ECHO, 0, my_checksum) + b"data"
+            struct.pack("!HHh", 8, 0, my_checksum) + b"data"
         )
-        packet = struct.pack("!HHh", socket.ICMP_ECHO, 0, my_checksum) + b"data"
+        packet = struct.pack("!HHh", 8, 0, my_checksum) + b"data"
 
         sock.sendto(packet, (host, 1))
 
@@ -148,7 +148,7 @@ def _ping_unix(host: str, timeout: float) -> bool:
         finally:
             sock.close()
     except Exception as exc:
-        logger.debug("Unix ping failed for %s: %s", host, exc)
+        logger.warning("Unix ping failed for %s: %s", host, exc)
         return False
 
 
@@ -160,9 +160,9 @@ def _ping_with_ttl_windows(host: str, timeout: float) -> tuple[bool, Optional[in
 
         my_checksum = 0
         my_checksum = _calculate_checksum(
-            struct.pack("!HHh", socket.ICMP_ECHO, 0, my_checksum) + b"data"
+            struct.pack("!HHh", 8, 0, my_checksum) + b"data"
         )
-        packet = struct.pack("!HHh", socket.ICMP_ECHO, 0, my_checksum) + b"data"
+        packet = struct.pack("!HHh", 8, 0, my_checksum) + b"data"
 
         sock.sendto(packet, (host, 1))
 
@@ -178,7 +178,7 @@ def _ping_with_ttl_windows(host: str, timeout: float) -> tuple[bool, Optional[in
         finally:
             sock.close()
     except Exception as exc:
-        logger.debug("Windows ping with TTL failed for %s: %s", host, exc)
+        logger.warning("Windows ping with TTL failed for %s: %s", host, exc)
         return False, None
 
 
@@ -190,9 +190,9 @@ def _ping_with_ttl_unix(host: str, timeout: float) -> tuple[bool, Optional[int]]
 
         my_checksum = 0
         my_checksum = _calculate_checksum(
-            struct.pack("!HHh", socket.ICMP_ECHO, 0, my_checksum) + b"data"
+            struct.pack("!HHh", 8, 0, my_checksum) + b"data"
         )
-        packet = struct.pack("!HHh", socket.ICMP_ECHO, 0, my_checksum) + b"data"
+        packet = struct.pack("!HHh", 8, 0, my_checksum) + b"data"
 
         sock.sendto(packet, (host, 1))
 
@@ -208,7 +208,7 @@ def _ping_with_ttl_unix(host: str, timeout: float) -> tuple[bool, Optional[int]]
         finally:
             sock.close()
     except Exception as exc:
-        logger.debug("Unix ping with TTL failed for %s: %s", host, exc)
+        logger.warning("Unix ping with TTL failed for %s: %s", host, exc)
         return False, None
 
 

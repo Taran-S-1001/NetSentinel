@@ -11,9 +11,11 @@ from typing import Any, Optional
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from flask_login import login_user
 
 from app import create_app
-from app.models import PortResult, ScanSession
+from app.extensions import db
+from app.models import PortResult, ScanSession, User
 from app.repositories import PortResultRepository, ScanSessionRepository
 from app.scanner.models import ScanResult
 from app.scanner.tcp import TCPScanner
@@ -28,13 +30,34 @@ def app():
     """Create a Flask app instance for testing."""
     app = create_app("testing")
     with app.app_context():
-        yield app
+        db.drop_all()
+        db.create_all()
+        # Create test user
+        from app.extensions import bcrypt
+        hashed_password = bcrypt.generate_password_hash("testpass123").decode("utf-8")
+        user = User(
+            username="testuser",
+            email="test@example.com",
+            password_hash=hashed_password,
+        )
+        db.session.add(user)
+        db.session.commit()
+        user = db.session.get(User, user.id)
+        yield app, user
 
 
 @pytest.fixture
 def client(app):
     """Create a test client for the Flask app."""
-    return app.test_client()
+    app_instance, user = app
+    with app_instance.test_client() as client:
+        # Log in the test user
+        client.post(
+            "/login",
+            data={"email": user.email, "password": "testpass123"},
+            follow_redirects=False,
+        )
+        yield client
 
 
 @pytest.fixture
@@ -176,6 +199,7 @@ class TestScanServiceWithCallback:
 
     def test_start_scan_passes_callback_to_scanner(self, app):
         """Verify that ScanService.start_scan() passes the callback through the chain."""
+        app_instance, test_user = app
         callback_invocations = []
 
         def test_callback(result: Any, completed: int, total: int) -> None:
@@ -187,46 +211,49 @@ class TestScanServiceWithCallback:
             ScanResult(host="127.0.0.1", port=80, protocol="tcp", status="OPEN"),
         ]
 
-        with app.app_context():
-            session_service = ScanSessionService(
-                session_repo=ScanSessionRepository(),
-                result_repo=PortResultRepository(),
-            )
-            scan_service = ScanService(session_service=session_service, scanner=mock_scanner)
+        with app_instance.app_context():
+            with app_instance.test_request_context():
+                login_user(test_user)
 
-            # Mock all the necessary methods to isolate the callback test
-            with patch.object(scan_service, "save_results") as mock_save:
-                with patch.object(scan_service, "calculate_statistics") as mock_stats:
-                    with patch.object(scan_service, "finish_scan") as mock_finish_scan:
-                        mock_session = Mock(spec=ScanSession)
-                        mock_session.id = 1
-                        mock_session.target_host = "127.0.0.1"
-                        mock_session.scan_type = "tcp"
-                        mock_session.protocol = "tcp"
-                        mock_session.status = "completed"
-                        mock_session.created_at = None
-                        mock_finish_scan.return_value = mock_session
-                        mock_save.return_value = [ScanResult(host="127.0.0.1", port=80, protocol="tcp", status="OPEN")]
-                        mock_stats.return_value = {
-                            "total_ports": 1,
-                            "open_ports": 1,
-                            "closed_ports": 0,
-                            "filtered_ports": 0,
-                            "duration": 0.1,
-                            "scan_speed": 10.0,
-                            "first_open_port": 80,
-                            "last_open_port": 80,
-                            "most_common_service": "http",
-                        }
+                session_service = ScanSessionService(
+                    session_repo=ScanSessionRepository(),
+                    result_repo=PortResultRepository(),
+                )
+                scan_service = ScanService(session_service=session_service, scanner=mock_scanner)
 
-                        # Start scan with callback
-                        scan_service.start_scan(
-                            target_host="127.0.0.1",
-                            ports=[80],
-                            scan_type="tcp",
-                            protocol="tcp",
-                            progress_callback=test_callback,
-                        )
+                # Mock all the necessary methods to isolate the callback test
+                with patch.object(scan_service, "save_results") as mock_save:
+                    with patch.object(scan_service, "calculate_statistics") as mock_stats:
+                        with patch.object(scan_service, "finish_scan") as mock_finish_scan:
+                            mock_session = Mock(spec=ScanSession)
+                            mock_session.id = 1
+                            mock_session.target_host = "127.0.0.1"
+                            mock_session.scan_type = "tcp"
+                            mock_session.protocol = "tcp"
+                            mock_session.status = "completed"
+                            mock_session.created_at = None
+                            mock_finish_scan.return_value = mock_session
+                            mock_save.return_value = [ScanResult(host="127.0.0.1", port=80, protocol="tcp", status="OPEN")]
+                            mock_stats.return_value = {
+                                "total_ports": 1,
+                                "open_ports": 1,
+                                "closed_ports": 0,
+                                "filtered_ports": 0,
+                                "duration": 0.1,
+                                "scan_speed": 10.0,
+                                "first_open_port": 80,
+                                "last_open_port": 80,
+                                "most_common_service": "http",
+                            }
+
+                            # Start scan with callback
+                            scan_service.start_scan(
+                                target_host="127.0.0.1",
+                                ports=[80],
+                                scan_type="tcp",
+                                protocol="tcp",
+                                progress_callback=test_callback,
+                            )
 
             # Verify scan_ports_threaded was called with the callback
             mock_scanner.scan_ports_threaded.assert_called_once()
@@ -236,49 +263,53 @@ class TestScanServiceWithCallback:
 
     def test_start_scan_works_without_callback(self, app):
         """Verify that ScanService.start_scan() works when no callback is provided."""
+        app_instance, test_user = app
         mock_scanner = MagicMock(spec=TCPScanner)
         mock_scanner.scan_ports_threaded.return_value = [
             ScanResult(host="127.0.0.1", port=80, protocol="tcp", status="OPEN"),
         ]
 
-        with app.app_context():
-            session_service = ScanSessionService(
-                session_repo=ScanSessionRepository(),
-                result_repo=PortResultRepository(),
-            )
-            scan_service = ScanService(session_service=session_service, scanner=mock_scanner)
+        with app_instance.app_context():
+            with app_instance.test_request_context():
+                login_user(test_user)
 
-            with patch.object(scan_service, "save_results") as mock_save:
-                with patch.object(scan_service, "calculate_statistics") as mock_stats:
-                    with patch.object(scan_service, "finish_scan") as mock_finish_scan:
-                        mock_session = Mock(spec=ScanSession)
-                        mock_session.id = 1
-                        mock_session.target_host = "127.0.0.1"
-                        mock_session.scan_type = "tcp"
-                        mock_session.protocol = "tcp"
-                        mock_session.status = "completed"
-                        mock_session.created_at = None
-                        mock_finish_scan.return_value = mock_session
-                        mock_save.return_value = [ScanResult(host="127.0.0.1", port=80, protocol="tcp", status="OPEN")]
-                        mock_stats.return_value = {
-                            "total_ports": 1,
-                            "open_ports": 1,
-                            "closed_ports": 0,
-                            "filtered_ports": 0,
-                            "duration": 0.1,
-                            "scan_speed": 10.0,
-                            "first_open_port": 80,
-                            "last_open_port": 80,
-                            "most_common_service": "http",
-                        }
+                session_service = ScanSessionService(
+                    session_repo=ScanSessionRepository(),
+                    result_repo=PortResultRepository(),
+                )
+                scan_service = ScanService(session_service=session_service, scanner=mock_scanner)
 
-                        # Start scan without callback (backward compatibility)
-                        scan_service.start_scan(
-                            target_host="127.0.0.1",
-                            ports=[80],
-                            scan_type="tcp",
-                            protocol="tcp",
-                        )
+                with patch.object(scan_service, "save_results") as mock_save:
+                    with patch.object(scan_service, "calculate_statistics") as mock_stats:
+                        with patch.object(scan_service, "finish_scan") as mock_finish_scan:
+                            mock_session = Mock(spec=ScanSession)
+                            mock_session.id = 1
+                            mock_session.target_host = "127.0.0.1"
+                            mock_session.scan_type = "tcp"
+                            mock_session.protocol = "tcp"
+                            mock_session.status = "completed"
+                            mock_session.created_at = None
+                            mock_finish_scan.return_value = mock_session
+                            mock_save.return_value = [ScanResult(host="127.0.0.1", port=80, protocol="tcp", status="OPEN")]
+                            mock_stats.return_value = {
+                                "total_ports": 1,
+                                "open_ports": 1,
+                                "closed_ports": 0,
+                                "filtered_ports": 0,
+                                "duration": 0.1,
+                                "scan_speed": 10.0,
+                                "first_open_port": 80,
+                                "last_open_port": 80,
+                                "most_common_service": "http",
+                            }
+
+                            # Start scan without callback (backward compatibility)
+                            scan_service.start_scan(
+                                target_host="127.0.0.1",
+                                ports=[80],
+                                scan_type="tcp",
+                                protocol="tcp",
+                            )
 
             # Should complete without error
             mock_scanner.scan_ports_threaded.assert_called_once()
@@ -291,9 +322,8 @@ class TestScanServiceWithCallback:
 class TestAPIProgressEvents:
     """Test that the /api/scan endpoint emits progress events correctly."""
 
-    def test_api_scan_emits_progress_events(self, app):
+    def test_api_scan_emits_progress_events(self, client):
         """Verify that the API endpoint emits scan_progress events via socket.io."""
-        client = app.test_client()
 
         # Mock the socketio.emit function
         with patch("app.routes.api.socketio.emit") as mock_emit:
@@ -367,9 +397,8 @@ class TestAPIProgressEvents:
 
             assert complete_event_found, "scan_complete event was not emitted"
 
-    def test_api_scan_validates_input(self, app):
+    def test_api_scan_validates_input(self, client):
         """Verify that the API endpoint validates input correctly."""
-        client = app.test_client()
 
         # Test missing host
         response = client.post(
@@ -396,9 +425,8 @@ class TestAPIProgressEvents:
         assert response.status_code == 400
         assert "start_port cannot be greater than end_port" in response.get_json()["error"]
 
-    def test_api_scan_returns_structured_response(self, app):
+    def test_api_scan_returns_structured_response(self, client):
         """Verify that the API endpoint returns the correct response structure."""
-        client = app.test_client()
 
         with patch("app.routes.api.ScanService.start_scan") as mock_start_scan:
             from app.schemas import HostScanResult
