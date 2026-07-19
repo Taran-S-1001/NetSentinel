@@ -12,9 +12,9 @@ import errno
 import logging
 import socket
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Optional
 
 from app.scanner.constants import DEFAULT_TIMEOUT
 from app.scanner.models import ScanResult
@@ -230,6 +230,7 @@ class TCPScanner:
         host: str,
         ports: list[int],
         max_workers: int = 10,
+        progress_callback: Optional[Callable[[ScanResult, int, int], None]] = None,
     ) -> list[ScanResult]:
         """Scan multiple TCP ports concurrently while preserving request order.
 
@@ -237,6 +238,11 @@ class TCPScanner:
         :class:`ThreadPoolExecutor`, reuses :meth:`scan_port` for the actual
         work, and preserves the original order of results by collecting them by
         index.
+
+        If a ``progress_callback`` is provided, it will be called for each
+        completed port scan with arguments: (scan_result, completed_count, total_count).
+        This allows decoupled progress reporting without coupling the scanner
+        to any transport or messaging layer (e.g., WebSockets).
         """
         if not isinstance(ports, list):
             raise TypeError("ports must be provided as a list of integers")
@@ -257,23 +263,35 @@ class TCPScanner:
 
         start_time = time.perf_counter()
         results: list[ScanResult] = [ScanResult(host=host, port=0, protocol="tcp", status="ERROR") for _ in ports]
-        futures: list[Future[ScanResult]] = []
+        futures_to_index: dict[Future[ScanResult], int] = {}
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for index, port in enumerate(ports):
                 self.logger.debug("Submitting port %s for host %s", port, host)
                 future = executor.submit(self.scan_port, host, port)
-                futures.append(future)
+                futures_to_index[future] = index
 
-            wait(futures)
-
-            for index, future in enumerate(futures):
+            completed_count = 0
+            for future in as_completed(futures_to_index.keys()):
+                index = futures_to_index[future]
                 try:
-                    results[index] = future.result()
+                    result = future.result()
+                    results[index] = result
+                    completed_count += 1
                     self.logger.debug("Completed scan for port %s", ports[index])
+
+                    # Call the progress callback if provided, allowing the caller
+                    # to emit events, log, or otherwise react to each result.
+                    if progress_callback is not None:
+                        try:
+                            progress_callback(result, completed_count, len(ports))
+                        except Exception as callback_exc:  # pragma: no cover
+                            self.logger.warning(
+                                "Progress callback raised exception: %s", callback_exc
+                            )
                 except Exception as exc:  # pragma: no cover - defensive guard
                     self.logger.exception("Future failed for %s:%s", host, ports[index])
-                    results[index] = ScanResult(
+                    result = ScanResult(
                         host=str(host),
                         port=int(ports[index]) if isinstance(ports[index], int) else 0,
                         protocol="tcp",
@@ -283,6 +301,16 @@ class TCPScanner:
                         error_message=str(exc),
                         timestamp=self._timestamp(),
                     )
+                    results[index] = result
+                    completed_count += 1
+
+                    if progress_callback is not None:
+                        try:
+                            progress_callback(result, completed_count, len(ports))
+                        except Exception as callback_exc:  # pragma: no cover
+                            self.logger.warning(
+                                "Progress callback raised exception: %s", callback_exc
+                            )
 
         duration = round(time.perf_counter() - start_time, 6)
         self.logger.info(

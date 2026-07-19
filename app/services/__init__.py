@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections import Counter
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from app.analytics.dashboard import DashboardService as AnalyticsDashboardService
 from app.models import PortResult, ScanSession
@@ -13,6 +14,7 @@ from app.repositories import (
     PortResultRepository,
     ScanRepository,
     ScanSessionRepository,
+    TracerouteHopRepository,
 )
 from app.schemas import (
     ComparisonReport,
@@ -23,7 +25,9 @@ from app.schemas import (
     SecurityReport,
     ServiceChange,
 )
+from app.scanner.ping import ping_with_ttl, guess_os_from_ttl
 from app.scanner.tcp import TCPScanner
+from app.scanner.traceroute import traceroute
 from app.services.ai_security_advisor import AISecurityAdvisor
 from app.services.network_monitor import NetworkMonitorService
 
@@ -441,6 +445,7 @@ class DashboardService:
         self._analytics_service = AnalyticsDashboardService(
             session_repo=ScanSessionRepository(),
             result_repo=PortResultRepository(),
+            hop_repo=TracerouteHopRepository(),
         )
 
     def get_home_dashboard_data(self) -> HomePageData:
@@ -496,6 +501,10 @@ class DashboardService:
     def get_infrastructure_overview(self) -> InfrastructureOverview:
         """Return the infrastructure overview widget payload."""
         return self._analytics_service.get_infrastructure_overview()
+
+    def get_network_topology(self) -> dict[str, Any]:
+        """Return aggregated network topology graph data for the UI."""
+        return self._analytics_service.get_network_topology()
 
 
 class ScanSessionService:
@@ -566,14 +575,32 @@ class ScanService:
         scanner: Optional[TCPScanner] = None,
         logger: Optional[logging.Logger] = None,
         advisor: Optional[AISecurityAdvisor] = None,
+        hop_repo: Optional[TracerouteHopRepository] = None,
     ) -> None:
         self._session_service = session_service or ScanSessionService()
         self._scanner = scanner or TCPScanner()
         self._logger = logger or logging.getLogger("netsentinel.scan_service")
         self._advisor = advisor or AISecurityAdvisor()
+        self._hop_repo = hop_repo or TracerouteHopRepository()
 
-    def start_scan(self, *, target_host: str, ports: list[int], scan_type: str, protocol: str) -> HostScanResult:
-        """Validate input, create a session, execute the scan, and return results."""
+    def start_scan(
+        self,
+        *,
+        target_host: str,
+        ports: list[int],
+        scan_type: str,
+        protocol: str,
+        progress_callback: Optional[Callable[[Any, int, int], None]] = None,
+    ) -> HostScanResult:
+        """Validate input, create a session, execute the scan, and return results.
+
+        If ``progress_callback`` is provided, it will be called for each completed
+        port scan with arguments: (scan_result, completed_count, total_count).
+        This allows decoupled progress reporting without coupling the service
+        to any transport layer (e.g., WebSockets).
+
+        Also runs OS fingerprinting and traceroute concurrently with the port scan.
+        """
         self._validate_scan_request(target_host=target_host, ports=ports, scan_type=scan_type, protocol=protocol)
         session = self._session_service.create_session(
             target_host=target_host,
@@ -582,7 +609,75 @@ class ScanService:
         )
         self._logger.info("Starting %s scan for %s", scan_type, target_host)
 
-        results = self.scan_host(session.id, target_host=target_host, ports=ports, protocol=protocol)
+        # Run fingerprinting and traceroute concurrently with port scan
+        os_fingerprint_result: list[Optional[str]] = [None]
+        traceroute_result: list[list[dict[str, object]]] = [[]]
+
+        def run_fingerprinting() -> None:
+            """Run OS fingerprinting in a separate thread."""
+            try:
+                _, ttl = ping_with_ttl(target_host, timeout=4.0)
+                if ttl is not None:
+                    os_fp = guess_os_from_ttl(ttl)
+                    os_fingerprint_result[0] = os_fp.guessed_os
+                    self._logger.info("OS fingerprint for %s: %s (confidence: %s)", target_host, os_fp.guessed_os, os_fp.confidence)
+            except Exception as exc:  # pragma: no cover
+                self._logger.debug("OS fingerprinting failed for %s: %s", target_host, exc)
+
+        def run_traceroute() -> None:
+            """Run traceroute in a separate thread."""
+            try:
+                hops = traceroute(target_host, max_hops=30, timeout=2.0)
+                traceroute_result[0] = [
+                    {
+                        "hop_number": hop.hop_number,
+                        "ip_address": hop.ip_address,
+                        "round_trip_time_ms": hop.round_trip_time_ms,
+                        "hostname": hop.hostname,
+                    }
+                    for hop in hops
+                ]
+                if traceroute_result[0]:
+                    self._logger.info("Traceroute to %s completed: %d hops", target_host, len(traceroute_result[0]))
+            except Exception as exc:  # pragma: no cover
+                self._logger.debug("Traceroute failed for %s: %s", target_host, exc)
+
+        # Start threads for fingerprinting and traceroute
+        fingerprint_thread = threading.Thread(target=run_fingerprinting, daemon=True)
+        traceroute_thread = threading.Thread(target=run_traceroute, daemon=True)
+        fingerprint_thread.start()
+        traceroute_thread.start()
+
+        # Run port scan in main thread
+        results = self.scan_host(
+            session.id,
+            target_host=target_host,
+            ports=ports,
+            protocol=protocol,
+            progress_callback=progress_callback,
+        )
+
+        # Wait for fingerprinting and traceroute to complete
+        fingerprint_thread.join(timeout=10.0)
+        traceroute_thread.join(timeout=10.0)
+
+        # Persist Phase 2 topology signals so historical topology can be built
+        os_guess = os_fingerprint_result[0]
+        traceroute_hops = traceroute_result[0]
+        if os_guess is not None:
+            scan_session = self._session_service._session_repo.get_by_id(session.id)
+            if scan_session is not None:
+                scan_session.os_guess = os_guess
+                self._session_service._session_repo.update(scan_session)
+                self._logger.info("Persisted OS guess for session %s: %s", session.id, os_guess)
+        if traceroute_hops:
+            self._hop_repo.save_hops(session.id, traceroute_hops)
+            self._logger.info(
+                "Persisted %d traceroute hops for session %s",
+                len(traceroute_hops),
+                session.id,
+            )
+
         statistics = self.calculate_statistics(results)
         finished_session = self.finish_scan(session.id, statistics=statistics)
         open_ports = [result.port for result in results if result.status == "OPEN"]
@@ -604,6 +699,8 @@ class ScanService:
             status=finished_session.status,
             created_at=finished_session.created_at.isoformat() if finished_session.created_at else None,
             open_ports_list=open_ports,
+            os_guess=os_guess,
+            traceroute_hops=traceroute_hops if traceroute_hops else None,
         )
         assessment = self._advisor.analyze(host_result, results)
         self._logger.info(
@@ -615,10 +712,22 @@ class ScanService:
         )
         return host_result
 
-    def scan_host(self, session_id: int, *, target_host: str, ports: list[int], protocol: str) -> list[PortResult]:
-        """Run the scanner against the provided ports and persist the results."""
+    def scan_host(
+        self,
+        session_id: int,
+        *,
+        target_host: str,
+        ports: list[int],
+        protocol: str,
+        progress_callback: Optional[Callable[[Any, int, int], None]] = None,
+    ) -> list[PortResult]:
+        """Run the scanner against the provided ports and persist the results.
+
+        If ``progress_callback`` is provided, it will be called for each completed
+        port scan with arguments: (scan_result, completed_count, total_count).
+        """
         self._logger.info("Scanning ports %s on %s", ports, target_host)
-        raw_results = self._scanner.scan_ports_threaded(target_host, ports)
+        raw_results = self._scanner.scan_ports_threaded(target_host, ports, progress_callback=progress_callback)
         self.save_results(session_id=session_id, results=raw_results, protocol=protocol)
         return self._session_service._result_repo.list_for_session(session_id)
 

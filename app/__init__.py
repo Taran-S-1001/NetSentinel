@@ -15,8 +15,12 @@ from flask import Flask, render_template
 from dotenv import load_dotenv
 
 from app.config import Config, TestingConfig
+<<<<<<< HEAD
 from app.extensions import db, login_manager, bcrypt
 from sqlalchemy.exc import OperationalError
+=======
+from app.extensions import db, socketio
+>>>>>>> origin/feature/realtime-progress-fingerprinting
 from app.routes.api import api_bp
 from app.routes.main import main_bp
 from app.routes.ui import ui_bp
@@ -76,6 +80,7 @@ def initialize_extensions(app: Flask) -> None:
     """Initialize third-party extensions for the Flask app."""
 
     db.init_app(app)
+    socketio.init_app(app)
 
     login_manager.init_app(app)
     bcrypt.init_app(app)
@@ -85,6 +90,14 @@ def initialize_extensions(app: Flask) -> None:
     login_manager.login_message_category = "info"
 
     with app.app_context():
+        # Import models so SQLAlchemy metadata includes all tables (including
+        # traceroute_hops / ScanSession.os_guess from Phase 3).
+        # db.create_all() only creates *missing* tables — it will not ALTER an
+        # existing scan_sessions table to add os_guess. Anyone with an existing
+        # netsentinel.db must delete/recreate it, or run a raw:
+        #   ALTER TABLE scan_sessions ADD COLUMN os_guess VARCHAR(100);
+        import app.models  # noqa: F401
+
         db.create_all()
 
 

@@ -129,3 +129,5 @@ class HostScanResult:
     status: str
     created_at: Optional[str] = None
     open_ports_list: Optional[list[int]] = None
+    os_guess: Optional[str] = None  # e.g., "Linux (likely)", "Windows (likely)"
+    traceroute_hops: Optional[list[dict[str, object]]] = None  # List of hop dicts

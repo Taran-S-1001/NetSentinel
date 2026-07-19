@@ -12,7 +12,7 @@ from typing import Any, Optional
 from flask import Blueprint, jsonify, request
 from flask_login import login_required
 
-from app.extensions import db
+from app.extensions import db, socketio
 from app.repositories import PortResultRepository, ScanSessionRepository
 from app.services import NetworkMonitorService, ScanService, ScanSessionService
 
@@ -33,7 +33,12 @@ def _build_scan_service() -> ScanService:
 @api_bp.route("/scan", methods=["POST"])
 @login_required
 def start_scan() -> Any:
-    """Start a new TCP scan and return a structured result payload."""
+    """Start a new TCP scan and emit real-time progress via WebSockets.
+
+    The endpoint validates input, creates a progress callback that emits
+    WebSocket events for each completed port, and runs the scan. WebSocket
+    clients receive "scan_progress" events in real-time.
+    """
     try:
         payload = request.get_json(silent=True) or {}
         host = payload.get("host")
@@ -51,13 +56,56 @@ def start_scan() -> Any:
             return jsonify({"error": "threads must be a positive integer"}), 400
 
         ports = list(range(start_port, end_port + 1))
+        
+        # Create a progress callback that emits WebSocket events for each result.
+        # This callback is invoked by the scanner as each port completes,
+        # allowing real-time UI updates without blocking the scan.
+        def emit_progress(scan_result: Any, completed: int, total: int) -> None:
+            """Emit a real-time progress event via WebSocket."""
+            percent_complete = round((completed / total) * 100, 2) if total > 0 else 0
+            socketio.emit(
+                "scan_progress",
+                {
+                    "port": scan_result.port,
+                    "status": scan_result.status,
+                    "service_name": scan_result.service_name,
+                    "response_time": scan_result.response_time,
+                    "completed": completed,
+                    "total": total,
+                    "percent_complete": percent_complete,
+                    "host": host,
+                },
+                namespace="/",
+            )
+        
         service = _build_scan_service()
         result = service.start_scan(
             target_host=host,
             ports=ports,
             scan_type="tcp",
             protocol="tcp",
+            progress_callback=emit_progress,
         )
+        
+        # Emit a final completion event.
+        socketio.emit(
+            "scan_complete",
+            {
+                "scan_id": result.scan_id,
+                "host": host,
+                "status": result.status,
+                "summary": {
+                    "total_ports": result.total_ports,
+                    "open_ports": result.open_ports,
+                    "closed_ports": result.closed_ports,
+                    "filtered_ports": result.filtered_ports,
+                    "duration": result.duration,
+                    "scan_speed": result.scan_speed,
+                },
+            },
+            namespace="/",
+        )
+        
         return jsonify(
             {
                 "scan_id": result.scan_id,

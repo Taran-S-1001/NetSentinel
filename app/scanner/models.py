@@ -67,3 +67,32 @@ class HostInformation:
     resolved_ipv6: Optional[str] = None
     is_reachable: bool = False
     services: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class TracerouteHop:
+    """Represents a single hop in a traceroute path.
+
+    This dataclass is not persisted to the database; it is returned as part
+    of the scan result payload to provide network path information.
+    """
+
+    hop_number: int
+    ip_address: Optional[str] = None
+    round_trip_time_ms: Optional[float] = None
+    hostname: Optional[str] = None
+
+
+@dataclass(slots=True)
+class OSFingerprint:
+    """Represents an OS fingerprint based on heuristic signals.
+
+    This is a heuristic guess, not authoritative. TTL values can be altered
+    by routing hops, firewalls, or manual OS configuration. Always label
+    results as "likely" in the UI and code comments.
+    """
+
+    guessed_os: str  # e.g., "Linux (likely)", "Windows (likely)", "Unknown"
+    confidence: str  # "low", "medium", "high" — based on how close TTL is to standard
+    ttl_observed: Optional[int] = None
+    method: str = "ttl_heuristic"  # The detection method used

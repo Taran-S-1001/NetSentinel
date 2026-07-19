@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional, Sequence
 
 from app.extensions import db
+<<<<<<< HEAD
 from app.models import PortResult, ScanSession
 from flask_login import current_user
+=======
+from app.models import PortResult, ScanSession, TracerouteHop
+
+>>>>>>> origin/feature/realtime-progress-fingerprinting
 
 class ScanRepository:
     """Repository responsible for legacy scan-related database operations."""
@@ -168,3 +173,58 @@ class PortResultRepository:
             .order_by(PortResult.port)
             .all()
         )
+
+
+class TracerouteHopRepository:
+    """Repository for persisting traceroute hop observations."""
+
+    def save_hops(
+        self,
+        scan_session_id: int,
+        hops: Sequence[Any],
+    ) -> list[TracerouteHop]:
+        """Persist a sequence of traceroute hops for a scan session.
+
+        Each hop may be a mapping or an object with ``hop_number``,
+        ``ip_address``, ``hostname``, and ``round_trip_time_ms`` attributes.
+        """
+        persisted: list[TracerouteHop] = []
+        for hop in hops:
+            hop_number = self._hop_field(hop, "hop_number")
+            if hop_number is None:
+                continue
+            row = TracerouteHop(
+                scan_session_id=scan_session_id,
+                hop_number=int(hop_number),
+                ip_address=self._hop_field(hop, "ip_address"),
+                hostname=self._hop_field(hop, "hostname"),
+                round_trip_time_ms=self._hop_field(hop, "round_trip_time_ms"),
+            )
+            db.session.add(row)
+            persisted.append(row)
+        db.session.commit()
+        return persisted
+
+    def get_hops_for_session(self, scan_session_id: int) -> list[TracerouteHop]:
+        """Return traceroute hops for a session ordered by hop number."""
+        return (
+            db.session.query(TracerouteHop)
+            .filter(TracerouteHop.scan_session_id == scan_session_id)
+            .order_by(TracerouteHop.hop_number)
+            .all()
+        )
+
+    def list_all(self) -> list[TracerouteHop]:
+        """Return all persisted traceroute hops across sessions."""
+        return (
+            db.session.query(TracerouteHop)
+            .order_by(TracerouteHop.scan_session_id, TracerouteHop.hop_number)
+            .all()
+        )
+
+    @staticmethod
+    def _hop_field(hop: Any, name: str) -> Any:
+        """Read a hop field from a mapping or attribute-bearing object."""
+        if isinstance(hop, dict):
+            return hop.get(name)
+        return getattr(hop, name, None)
