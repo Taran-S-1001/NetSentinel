@@ -10,6 +10,7 @@ import logging
 from typing import Any, Optional
 
 from flask import Blueprint, jsonify, request
+from flask_login import login_required
 
 from app.extensions import db
 from app.repositories import PortResultRepository, ScanSessionRepository
@@ -30,6 +31,7 @@ def _build_scan_service() -> ScanService:
 
 
 @api_bp.route("/scan", methods=["POST"])
+@login_required
 def start_scan() -> Any:
     """Start a new TCP scan and return a structured result payload."""
     try:
@@ -85,6 +87,7 @@ def start_scan() -> Any:
 
 
 @api_bp.route("/scans", methods=["GET"])
+@login_required
 def list_scans() -> Any:
     """Return a paginated list of scan sessions filtered by query parameters."""
     try:
@@ -133,6 +136,7 @@ def list_scans() -> Any:
 
 
 @api_bp.route("/scans/<int:scan_id>", methods=["GET"])
+@login_required
 def get_scan(scan_id: int) -> Any:
     """Return full scan details for a single scan session."""
     try:
@@ -176,6 +180,7 @@ def get_scan(scan_id: int) -> Any:
 
 
 @api_bp.route("/scans/<int:scan_id>", methods=["DELETE"])
+@login_required
 def delete_scan(scan_id: int) -> Any:
     """Delete a scan session and its associated port results."""
     try:
@@ -190,6 +195,7 @@ def delete_scan(scan_id: int) -> Any:
 
 
 @api_bp.route("/dashboard", methods=["GET"])
+@login_required
 def dashboard() -> Any:
     """Return aggregate dashboard metrics for the scan history."""
     try:

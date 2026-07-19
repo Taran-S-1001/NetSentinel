@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from flask_login import login_user
+
 from app import create_app
 from app.extensions import db
 from app.repositories import PortResultRepository, ScanSessionRepository
 from app.services import ScanService, ScanSessionService
 
 
-def test_scan_service_orchestrates_scan_workflow() -> None:
+def test_scan_service_orchestrates_scan_workflow(authenticated_app_context) -> None:
     """The scan service should create, execute, persist, and finalize a scan session."""
-    app = create_app("testing")
-    with app.app_context():
-        db.drop_all()
-        db.create_all()
+    app, test_user = authenticated_app_context
+
+    with app.test_request_context():
+        login_user(test_user)
 
         session_service = ScanSessionService(
             session_repo=ScanSessionRepository(),

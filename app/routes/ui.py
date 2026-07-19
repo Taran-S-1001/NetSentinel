@@ -32,8 +32,8 @@ from app.services import (
 
 ui_bp = Blueprint("ui", __name__)
 
-@login_required
 @ui_bp.route("/")
+@login_required
 def dashboard() -> str:
     """Render the main dashboard page."""
     dashboard_service = DashboardService()
@@ -47,6 +47,7 @@ def dashboard() -> str:
 
 
 @ui_bp.route("/scan", methods=["GET", "POST"])
+@login_required
 def scan_page() -> str:
     """Render the scan submission page and process new scans."""
     if request.method == "POST":
@@ -117,6 +118,7 @@ def scan_page() -> str:
 
 
 @ui_bp.route("/history")
+@login_required
 def history() -> str:
     """Render the scan history page."""
     query = request.args.get("q", "").strip().lower()
@@ -142,6 +144,7 @@ def history() -> str:
 
 
 @ui_bp.route("/schedules", methods=["GET", "POST"])
+@login_required
 def schedules() -> str:
     """Render the scheduled scans management page."""
     repository = ScheduledScanRepository()
@@ -196,6 +199,7 @@ def schedules() -> str:
 
 
 @ui_bp.route("/scan/<int:scan_id>", methods=["GET"])
+@login_required
 def scan_details(scan_id: int) -> str:
     """Render the scan detail page for an individual scan."""
     scan_service = ScanService()
@@ -233,6 +237,7 @@ def scan_details(scan_id: int) -> str:
 
 
 @ui_bp.route("/scan/<int:scan_id>/delete", methods=["POST"])
+@login_required
 def delete_scan(scan_id: int) -> str:
     """Delete a scan session and redirect back to history."""
     scan_service = ScanService()
@@ -245,6 +250,7 @@ def delete_scan(scan_id: int) -> str:
 
 
 @ui_bp.route("/analytics")
+@login_required
 def analytics() -> str:
     """Render the analytics page."""
     dashboard_service = DashboardService()
@@ -254,6 +260,7 @@ def analytics() -> str:
 
 
 @ui_bp.route("/reports")
+@login_required
 def reports() -> str:
     """Render the enterprise-style reporting page."""
     scan_service = ScanService()
@@ -282,6 +289,7 @@ def reports() -> str:
 
 
 @ui_bp.route("/reports/<int:scan_id>/<string:report_format>")
+@login_required
 def download_report(scan_id: int, report_format: str) -> Response | Any:
     """Download a report for a specific scan in PDF, CSV, or JSON format."""
     scan_service = ScanService()
