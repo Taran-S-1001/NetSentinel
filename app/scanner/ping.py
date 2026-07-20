@@ -13,6 +13,8 @@ import platform
 import socket
 import struct
 import time
+import re
+import subprocess
 from typing import Optional
 
 from app.scanner.models import OSFingerprint
@@ -153,60 +155,33 @@ def _ping_unix(host: str, timeout: float) -> bool:
 
 
 def _ping_with_ttl_windows(host: str, timeout: float) -> tuple[bool, Optional[int]]:
-    """Windows-specific ICMP ping with TTL extraction."""
+    """Windows ping via subprocess, parsing TTL from the command output."""
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
-        sock.settimeout(timeout)
-
-        my_checksum = 0
-        my_checksum = _calculate_checksum(
-            struct.pack("!HHh", 8, 0, my_checksum) + b"data"
+        timeout_ms = int(timeout * 1000)
+        result = subprocess.run(
+            ["ping", "-n", "1", "-w", str(timeout_ms), host],
+            capture_output=True, text=True, timeout=timeout + 2,
         )
-        packet = struct.pack("!HHh", 8, 0, my_checksum) + b"data"
-
-        sock.sendto(packet, (host, 1))
-
-        try:
-            data, _ = sock.recvfrom(1024)
-            # Extract TTL from IP header (byte 8, 1 byte)
-            if len(data) >= 9:
-                ttl = data[8]
-                return True, ttl
-            return True, None
-        except socket.timeout:
-            return False, None
-        finally:
-            sock.close()
+        match = re.search(r"TTL=(\d+)", result.stdout, re.IGNORECASE)
+        if match:
+            return True, int(match.group(1))
+        return False, None
     except Exception as exc:
         logger.warning("Windows ping with TTL failed for %s: %s", host, exc)
         return False, None
 
 
 def _ping_with_ttl_unix(host: str, timeout: float) -> tuple[bool, Optional[int]]:
-    """Unix/Linux-specific ICMP ping with TTL extraction."""
+    """Unix ping via subprocess, parsing TTL from the command output."""
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
-        sock.settimeout(timeout)
-
-        my_checksum = 0
-        my_checksum = _calculate_checksum(
-            struct.pack("!HHh", 8, 0, my_checksum) + b"data"
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", str(int(timeout)), host],
+            capture_output=True, text=True, timeout=timeout + 2,
         )
-        packet = struct.pack("!HHh", 8, 0, my_checksum) + b"data"
-
-        sock.sendto(packet, (host, 1))
-
-        try:
-            data, _ = sock.recvfrom(1024)
-            # Extract TTL from IP header (byte 8, 1 byte)
-            if len(data) >= 9:
-                ttl = data[8]
-                return True, ttl
-            return True, None
-        except socket.timeout:
-            return False, None
-        finally:
-            sock.close()
+        match = re.search(r"ttl=(\d+)", result.stdout, re.IGNORECASE)
+        if match:
+            return True, int(match.group(1))
+        return False, None
     except Exception as exc:
         logger.warning("Unix ping with TTL failed for %s: %s", host, exc)
         return False, None

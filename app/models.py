@@ -180,3 +180,22 @@ class TracerouteHop(db.Model):  # type: ignore[name-defined]
     round_trip_time_ms = db.Column(db.Float, nullable=True)
 
     scan_session = db.relationship("ScanSession", back_populates="traceroute_hops")
+
+class ScheduledScan(db.Model):  # type: ignore[name-defined]
+    """A recurring scan configuration."""
+
+    __tablename__ = "scheduled_scans"
+
+    id = db.Column(db.Integer, primary_key=True)
+    target_host = db.Column(db.String(255), nullable=False)
+    scan_type = db.Column(db.String(50), nullable=False)
+    protocol = db.Column(db.String(50), nullable=False)
+    start_port = db.Column(db.Integer, nullable=False)
+    end_port = db.Column(db.Integer, nullable=False)
+    interval_seconds = db.Column(db.Integer, nullable=False)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    alert_email = db.Column(db.String(255), nullable=True)
+    alert_webhook = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )

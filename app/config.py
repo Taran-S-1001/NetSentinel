@@ -16,6 +16,7 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
     DEBUG: bool = False
     TESTING: bool = False
+    SCHEDULER_ENABLED = True
 
 
 class TestingConfig(Config):
@@ -23,3 +24,4 @@ class TestingConfig(Config):
 
     TESTING: bool = True
     SQLALCHEMY_DATABASE_URI: str = "sqlite:///:memory:"
+    SCHEDULER_ENABLED = False

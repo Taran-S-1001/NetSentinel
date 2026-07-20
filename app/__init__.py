@@ -58,6 +58,10 @@ def create_app(config_name: Optional[str] = None) -> Flask:
 
     initialize_extensions(app)
     register_blueprints(app)
+    if app.config.get("SCHEDULER_ENABLED"):
+        from app.services.scheduled_scan import ScheduledScanManager
+        app.scheduled_scan_manager = ScheduledScanManager(app)
+        app.scheduled_scan_manager.start()
     configure_logging(app)
     register_shell_context(app)
     register_error_handlers(app)
