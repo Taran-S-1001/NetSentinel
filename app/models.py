@@ -187,6 +187,11 @@ class ScheduledScan(db.Model):  # type: ignore[name-defined]
     __tablename__ = "scheduled_scans"
 
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     target_host = db.Column(db.String(255), nullable=False)
     scan_type = db.Column(db.String(50), nullable=False)
     protocol = db.Column(db.String(50), nullable=False)
@@ -196,6 +201,8 @@ class ScheduledScan(db.Model):  # type: ignore[name-defined]
     enabled = db.Column(db.Boolean, nullable=False, default=True)
     alert_email = db.Column(db.String(255), nullable=True)
     alert_webhook = db.Column(db.String(255), nullable=True)
+    last_run_at = db.Column(db.DateTime, nullable=True)
+    last_status = db.Column(db.String(50), nullable=True)
     created_at = db.Column(
         db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )

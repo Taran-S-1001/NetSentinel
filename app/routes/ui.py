@@ -172,6 +172,7 @@ def schedules() -> str:
 
         if not errors:
             schedule = repository.create(
+                user_id=current_user.id,
                 target_host=host,
                 scan_type="tcp",
                 protocol="tcp",
@@ -196,6 +197,25 @@ def schedules() -> str:
         title="Scheduled Scans",
         schedules=schedules,
     )
+
+
+@ui_bp.route("/schedules/<int:schedule_id>/delete", methods=["POST"])
+@login_required
+def delete_schedule(schedule_id: int) -> Response:
+    """Delete a scheduled scan and unregister its background job."""
+    repository = ScheduledScanRepository()
+    schedule = repository.get_by_id(schedule_id)
+    if schedule is None:
+        flash("Scheduled scan not found.", "danger")
+        return redirect(url_for("ui.schedules"))
+
+    repository.delete(schedule)
+    if current_app.config.get("SCHEDULER_ENABLED") and hasattr(
+        current_app, "scheduled_scan_manager"
+    ):
+        current_app.scheduled_scan_manager.remove_schedule(schedule_id)
+    flash("Scheduled scan deleted successfully.", "success")
+    return redirect(url_for("ui.schedules"))
 
 
 @ui_bp.route("/topology")

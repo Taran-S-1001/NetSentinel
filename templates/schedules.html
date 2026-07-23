@@ -21,7 +21,10 @@
               <th>Range</th>
               <th>Interval</th>
               <th>Alerts</th>
+              <th>Enabled</th>
+              <th>Last Run</th>
               <th>Status</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -40,10 +43,19 @@
                   {{ 'Enabled' if schedule.enabled else 'Disabled' }}
                 </span>
               </td>
+              <td>
+                {{ schedule.last_run_at.strftime('%Y-%m-%d %H:%M:%S') if schedule.last_run_at else 'Never run' }}
+              </td>
+              <td>{{ schedule.last_status or '—' }}</td>
+              <td class="text-end">
+                <form method="post" action="{{ url_for('ui.delete_schedule', schedule_id=schedule.id) }}" class="d-inline" onsubmit="return confirm('Delete this scheduled scan?');">
+                  <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                </form>
+              </td>
             </tr>
             {% else %}
             <tr>
-              <td colspan="5" class="text-center text-muted">No scheduled scans yet.</td>
+              <td colspan="8" class="text-center text-muted">No scheduled scans yet.</td>
             </tr>
             {% endfor %}
           </tbody>

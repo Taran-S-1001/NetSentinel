@@ -127,9 +127,13 @@ class ScheduledScanManager:
                     ports=list(range(schedule.start_port, schedule.end_port + 1)),
                     scan_type=schedule.scan_type,
                     protocol=schedule.protocol,
+                    user_id=schedule.user_id,
                 )
 
-                current_session = self._scan_service.get_scan_by_id(result.scan_id)
+                current_session = self._scan_service.get_scan_by_id(
+                    result.scan_id,
+                    user_id=schedule.user_id,
+                )
                 previous_session = self._find_previous_session(
                     schedule.target_host,
                     current_session.id if current_session else None,

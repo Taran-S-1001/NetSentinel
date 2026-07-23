@@ -519,12 +519,20 @@ class ScanSessionService:
         self._session_repo = session_repo or ScanSessionRepository()
         self._result_repo = result_repo or PortResultRepository()
 
-    def create_session(self, *, target_host: str, scan_type: str, protocol: str) -> ScanSession:
+    def create_session(
+        self,
+        *,
+        target_host: str,
+        scan_type: str,
+        protocol: str,
+        user_id: Optional[int] = None,
+    ) -> ScanSession:
         """Create a new scan session and persist it."""
         return self._session_repo.create(
             target_host=target_host,
             scan_type=scan_type,
             protocol=protocol,
+            user_id=user_id,
         )
 
     def save_result(
@@ -549,9 +557,15 @@ class ScanSessionService:
             error_message=error_message,
         )
 
-    def finish_session(self, session_id: int, *, status: str) -> ScanSession:
+    def finish_session(
+        self,
+        session_id: int,
+        *,
+        status: str,
+        user_id: Optional[int] = None,
+    ) -> ScanSession:
         """Finalize a scan session with an end state."""
-        session = self._session_repo.get_by_id(session_id)
+        session = self._session_repo.get_by_id(session_id, user_id=user_id)
         if session is None:
             raise ValueError(f"Session {session_id} does not exist")
 
@@ -590,6 +604,7 @@ class ScanService:
         ports: list[int],
         scan_type: str,
         protocol: str,
+        user_id: Optional[int] = None,
         progress_callback: Optional[Callable[[Any, int, int], None]] = None,
     ) -> HostScanResult:
         """Validate input, create a session, execute the scan, and return results.
@@ -606,6 +621,7 @@ class ScanService:
             target_host=target_host,
             scan_type=scan_type,
             protocol=protocol,
+            user_id=user_id,
         )
         self._logger.info("Starting %s scan for %s", scan_type, target_host)
 
@@ -665,7 +681,10 @@ class ScanService:
         os_guess = os_fingerprint_result[0]
         traceroute_hops = traceroute_result[0]
         if os_guess is not None:
-            scan_session = self._session_service._session_repo.get_by_id(session.id)
+            scan_session = self._session_service._session_repo.get_by_id(
+                session.id,
+                user_id=user_id,
+            )
             if scan_session is not None:
                 scan_session.os_guess = os_guess
                 self._session_service._session_repo.update(scan_session)
@@ -679,7 +698,11 @@ class ScanService:
             )
 
         statistics = self.calculate_statistics(results)
-        finished_session = self.finish_scan(session.id, statistics=statistics)
+        finished_session = self.finish_scan(
+            session.id,
+            statistics=statistics,
+            user_id=user_id,
+        )
         open_ports = [result.port for result in results if result.status == "OPEN"]
 
         host_result = HostScanResult(
@@ -780,9 +803,15 @@ class ScanService:
             "most_common_service": most_common_service,
         }
 
-    def finish_scan(self, session_id: int, *, statistics: dict[str, Any]) -> ScanSession:
+    def finish_scan(
+        self,
+        session_id: int,
+        *,
+        statistics: dict[str, Any],
+        user_id: Optional[int] = None,
+    ) -> ScanSession:
         """Finalize the scan session and update aggregate counters."""
-        session = self._session_service._session_repo.get_by_id(session_id)
+        session = self._session_service._session_repo.get_by_id(session_id, user_id=user_id)
         if session is None:
             raise ValueError(f"Session {session_id} does not exist")
 
@@ -790,11 +819,20 @@ class ScanService:
         session.open_ports = statistics["open_ports"]
         session.closed_ports = statistics["closed_ports"]
         session.filtered_ports = statistics["filtered_ports"]
-        return self._session_service.finish_session(session_id, status="completed")
+        return self._session_service.finish_session(
+            session_id,
+            status="completed",
+            user_id=user_id,
+        )
 
-    def get_scan_by_id(self, scan_id: int) -> Optional[ScanSession]:
+    def get_scan_by_id(
+        self,
+        scan_id: int,
+        *,
+        user_id: Optional[int] = None,
+    ) -> Optional[ScanSession]:
         """Return a scan session by identifier."""
-        return self._session_service._session_repo.get_by_id(scan_id)
+        return self._session_service._session_repo.get_by_id(scan_id, user_id=user_id)
 
     def get_scan_history(self) -> list[ScanSession]:
         """Return all persisted scan sessions."""

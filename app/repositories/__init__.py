@@ -20,11 +20,18 @@ class ScanRepository:
 class ScanSessionRepository:
     """Repository for session-level persistence operations."""
 
-    def create(self, *, target_host: str, scan_type: str, protocol: str) -> ScanSession:
+    def create(
+        self,
+        *,
+        target_host: str,
+        scan_type: str,
+        protocol: str,
+        user_id: Optional[int] = None,
+    ) -> ScanSession:
         """Create and persist a new scan session."""
 
         session = ScanSession(
-            user_id=current_user.id,
+            user_id=user_id if user_id is not None else current_user.id,
             target_host=target_host,
             scan_type=scan_type,
             protocol=protocol,
@@ -37,13 +44,18 @@ class ScanSessionRepository:
 
         return session
 
-    def get_by_id(self, session_id: int) -> Optional[ScanSession]:
+    def get_by_id(
+        self,
+        session_id: int,
+        *,
+        user_id: Optional[int] = None,
+    ) -> Optional[ScanSession]:
         """Retrieve a scan session belonging to the current user."""
         return (
             db.session.query(ScanSession)
             .filter(
             ScanSession.id == session_id,
-            ScanSession.user_id == current_user.id,
+            ScanSession.user_id == (user_id if user_id is not None else current_user.id),
         )
         .first()
     )
@@ -61,6 +73,15 @@ class ScanSessionRepository:
         .filter(ScanSession.user_id == current_user.id)
         .order_by(ScanSession.created_at.desc())
         .all()
+        )
+
+    def list_by_host(self, target_host: str) -> list[ScanSession]:
+        """Return scan sessions for a host, newest first."""
+        return (
+            db.session.query(ScanSession)
+            .filter(ScanSession.target_host == target_host)
+            .order_by(ScanSession.created_at.desc())
+            .all()
         )
 
     def delete(self, session: ScanSession) -> None:
@@ -81,6 +102,7 @@ class ScheduledScanRepository:
         start_port: int,
         end_port: int,
         interval_seconds: int,
+        user_id: int,
         enabled: bool = True,
         alert_email: Optional[str] = None,
         alert_webhook: Optional[str] = None,
@@ -88,6 +110,7 @@ class ScheduledScanRepository:
         from app.models import ScheduledScan
 
         schedule = ScheduledScan(
+            user_id=user_id,
             target_host=target_host,
             scan_type=scan_type,
             protocol=protocol,
