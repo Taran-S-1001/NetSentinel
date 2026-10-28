@@ -14,7 +14,7 @@ from typing import Optional
 from flask import Flask, render_template
 from dotenv import load_dotenv
 
-from app.config import Config, TestingConfig
+from app.config import Config, TestingConfig, resolve_secret_key
 from app.extensions import db, login_manager, bcrypt, socketio
 from sqlalchemy.exc import OperationalError
 from app.routes.api import api_bp
@@ -44,6 +44,7 @@ def create_app(config_name: Optional[str] = None) -> Flask:
 
     config_obj = resolve_config(config_name)
     app.config.from_object(config_obj)
+    app.config["SECRET_KEY"] = resolve_secret_key(app.config.get("SECRET_KEY"))
 
     # Ensure instance directory exists BEFORE initializing database
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
