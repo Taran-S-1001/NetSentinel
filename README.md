@@ -1,62 +1,47 @@
-\# NetSentinel
+# NetSentinel
 
+**Intelligent Network Port Scanner & Service Analysis Dashboard**
 
+Flask, SQLite, Bootstrap and Chart.js. Features: port scanning, service
+detection, OS fingerprinting, traceroute, scan history and comparison,
+scheduled scans, dashboard analytics, security recommendations, PDF and CSV
+reports, user accounts.
 
-\*\*Intelligent Network Port Scanner \& Service Analysis Dashboard\*\*
+> Only scan hosts and networks you own or have permission to test.
 
+## Setup
 
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-\## Tech Stack
+## Run (development server)
 
+```bash
+python run.py
+```
 
+This starts Flask's **development server, not a production server**. It opens on
+http://127.0.0.1:5000 with debug off and is reachable from your machine only.
+For deployment, use a production WSGI server instead.
 
-\- Flask
+Configure with environment variables or a local `.env` file in the project
+folder (git-ignored; `python run.py` loads it):
 
-\- Python
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NETSENTINEL_SECRET_KEY` (or `SECRET_KEY`) | random per start | Session signing key. Set it for sessions that survive restarts. |
+| `NETSENTINEL_DEBUG` | off | `1` enables Flask debug mode. Development only. |
+| `NETSENTINEL_HOST` | `127.0.0.1` | Listen address. |
+| `NETSENTINEL_PORT` | `5000` | Listen port. |
+| `NETSENTINEL_ALLOW_UNSAFE_WERKZEUG` | off | Must be `1` to listen on a non-loopback host such as `0.0.0.0`. That exposes the development server to your network; trusted networks only. |
 
-\- SQLite
+Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`.
 
-\- Bootstrap
+## Test
 
-\- Chart.js
-
-
-
-\## Features
-
-
-
-\- Port Scanning
-
-\- Service Detection
-
-\- Scan History
-
-\- Dashboard Analytics
-
-\- PDF Reports
-
-\- CSV Export
-
-\## Setup Notes
-
-
-
-If you already have a local \`instance/netsentinel.db\` from before the
-
-realtime-progress-fingerprinting branch, delete it before running the app.
-
-Phase 3 added new columns/tables (e.g. \`os_guess\` on \`ScanSession\`), and
-
-\`db.create_all()\` only creates brand-new tables, it will not alter ones
-
-that already exist. A stale database will cause a database schema error
-
-on startup.
-
-\## Status
-
-
-
-🚧 Under Development
-
+```bash
+pytest
+```
